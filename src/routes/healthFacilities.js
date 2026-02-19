@@ -6,8 +6,9 @@
 
 import { Router } from "express";
 import { redis } from "../lib/redis.js";
+import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
+import { FACILITIES_KEY } from "../lib/constants.js";
 
-const FACILITIES_KEY = "health:facilities:davao";
 const router = Router();
 
 async function getFacilities() {
@@ -50,6 +51,55 @@ router.get("/facilities", async (req, res) => {
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Failed to fetch facilities" });
+  }
+});
+
+/** POST /api/facilities/counts-by-barangays – batch facility counts for many barangays (e.g. for AI pipeline). Body: { "barangayIds": ["id1", "id2", ...] }. Response: { "counts": { "id1": 3, "id2": 0, ... } }. */
+router.post("/facilities/counts-by-barangays", async (req, res) => {
+  try {
+    const ids = req.body?.barangayIds;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: "barangayIds array required and non-empty" });
+    }
+    const facilities = await getFacilities();
+    const counts = {};
+    for (const barangayId of ids) {
+      const bid = String(barangayId ?? "").trim();
+      if (!bid) continue;
+      const result = await assessFacilitiesInBarangay(bid, facilities);
+      counts[bid] = result.found ? result.total : 0;
+    }
+    return res.json({ counts });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch facility counts" });
+  }
+});
+
+/** GET /api/facilities/by-barangay/:barangayId – must be before /facilities/:id so "by-barangay" is not matched as id */
+router.get("/facilities/by-barangay/:barangayId", async (req, res) => {
+  try {
+    const barangayId = req.params.barangayId?.trim();
+    if (!barangayId) {
+      return res.status(400).json({ error: "barangayId required" });
+    }
+    const facilities = await getFacilities();
+    const result = await assessFacilitiesInBarangay(barangayId, facilities);
+    if (!result.found) {
+      return res.status(404).json({
+        error: "Barangay not found",
+        barangayId: result.barangayId,
+        hint: "Use a Davao barangay id (e.g. PSGC adm4_psgc from the heat map GeoJSON)",
+      });
+    }
+    res.json({
+      barangayId: result.barangayId,
+      total: result.total,
+      facilities: result.facilities,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to assess facilities in barangay" });
   }
 });
 

@@ -73,8 +73,23 @@ The health facilities data comes from the [Philippines](https://github.com/...) 
 | GET | `/api/facilities` | List facilities (query: `type`, `source`, `ownership`, `name`, `limit`, `offset`) |
 | GET | `/api/facilities/:id` | One facility by id |
 | GET | `/api/types` | Facility type summary |
+| GET | `/api/heat/:cityId/barangay-temperatures` | Barangay temperatures. Different temp per barangay: [Meteosource](https://www.meteosource.com/). Fallback: [WeatherAPI](https://www.weatherapi.com/) city average for all. |
+| GET | `/api/heat/:cityId/barangay-heat-risk` | Barangay temps + PAGASA heat-risk. Per-barangay different heat: Meteosource; optional `?limit=`. |
+| GET | `/api/heat/:cityId/forecast` | 7- or 14-day forecast from WeatherAPI (`?days=7` or `?days=14`) |
 | GET | `/health` | Health check (includes Redis status) |
 
 ## Env vars
 
-See `.env.example`. Main ones: `REDIS_URL`, `FACILITIES_JSON_PATH`, `PORT`.
+See `.env.example`. Main ones: `REDIS_URL`, `FACILITIES_JSON_PATH`, `PORT`. For **different heat temps per barangay** use `METEOSOURCE_API_KEY`; `WEATHER_API_KEY` alone gives one city average for all. Optional: **Supabase** (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) for Postgres/heat snapshots; **Edge Function** (`HEAT_WRITER_KEY` + `HEAT_SNAPSHOT_WRITER_URL` or `SUPABASE_PROJECT_REF`) to write snapshots—keep keys server-side only. **Production:** set `CORS_ORIGIN` to your frontend origin (e.g. `https://your-app.vercel.app`) to restrict CORS; unset = `*`.
+
+## Heat API and heuristic model
+
+Barangay temperature/heat API and logic live in this repo. See **`docs/HEAT-API.md`** for the API contract, backend responsibilities, and the target heuristic AI model.
+
+## Data export and Supabase
+
+CSV export format and Supabase schema (heat snapshots, snapshot-by-barangay) are defined in **`docs/DATA_EXPORT.md`**. The backend is the place to implement writing snapshots to Supabase and serving CSV (or snapshot) export endpoints.
+
+## Testing APIs with real data
+
+**`docs/TESTING-COMMANDS.md`** – curl commands and scripts to verify each API and model (facilities, heat, forecast, health) with real data. Includes required env and a quick checklist.

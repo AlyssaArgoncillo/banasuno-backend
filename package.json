@@ -6,10 +6,16 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "seed:facilities": "node scripts/seed-health-facilities.js"
+    "seed:facilities": "node scripts/seed-health-facilities.js",
+    "test:supabase-push": "node scripts/test-supabase-push.js"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.97.0",
+    "dotenv": "^17.3.1",
     "express": "^4.21.0",
     "ioredis": "^5.4.1"
+  },
+  "devDependencies": {
+    "supabase": "^2.76.10"
   }
 }
