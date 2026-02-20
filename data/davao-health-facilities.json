@@ -2,7 +2,7 @@
   {
     "id": "1068744746",
     "source": "way",
-    "name": "",
+    "name": "Ernesto Guadalupe Community Hospital",
     "facility_type": "hospital",
     "ownership": "",
     "latitude": 7.009506364644887,
@@ -403,7 +403,7 @@
   {
     "id": "1237302576",
     "source": "node",
-    "name": "",
+    "name": "Philippine Nikkei Jin Kai Polyclinic and Diagnostic Center",
     "facility_type": "clinic",
     "ownership": "",
     "latitude": 7.102823031448764,
@@ -430,7 +430,7 @@
   {
     "id": "642303328",
     "source": "way",
-    "name": "",
+    "name": "Buenaventura Medical Clinic",
     "facility_type": "clinic",
     "ownership": "",
     "latitude": 7.266336600000001,
@@ -1230,7 +1230,7 @@
   {
     "id": "4964003112",
     "source": "node",
-    "name": "",
+    "name": "Philippine Red Cross - Davao City Chapter",
     "facility_type": "blood_donation (private)",
     "ownership": "private",
     "latitude": 7.072401835889849,
@@ -1257,7 +1257,7 @@
   {
     "id": "5415647322",
     "source": "node",
-    "name": "",
+    "name": "Chiropractor & Posture Clinic",
     "facility_type": "doctors",
     "ownership": "",
     "latitude": 7.060192671908283,
