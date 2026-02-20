@@ -11,6 +11,13 @@ Temperature: use heat index °C when fetch script got it from backend (validated
 Computational basis: docs/PIPELINE-COMPUTATIONAL-BASIS.md.
 """
 
+# Introduction comment block for CSV: disclaimer, sources, computation (lines start with # for CSV readers that skip comments).
+CSV_INTRODUCTION = r"""# Pipeline heat-risk report – introduction
+# Disclaimer: This report is for planning and prioritization only. It is not an official PAGASA or health hazard report and should not be used as the sole basis for resource allocation or regulatory decisions. Combine with official sources and local knowledge.
+# Sources: Temperature/heat index from backend (WeatherAPI; NOAA Rothfusz when humidity available). PAGASA heat index bands (https://www.pagasa.dost.gov.ph/weather/heat-index). Facility score from backend facilities (Postgres). Population/density from PSA 2020 census + GeoJSON (backend barangay-population). Equal weight approach (EWA) validated per literature (e.g. Urban Climate 2024, DOI 10.1016/j.uclim.2024.101838). Full refs: docs/CITED-SOURCES.md, docs/DISCLAIMERS.md.
+# Computation: Inputs = temperature (or heat index °C when available), facility_score = 1/(1+facility_count), density (persons/km²). Weights = 1/3 each if 3 features (temp, facility, density), else 1/2 each (temp, facility). MinMaxScaler to [0,1], K-Means k=5, cluster severity = weighted mean of scaled features; rank clusters by severity → risk_level 1 (lowest) to 5 (highest). See docs/PIPELINE-COMPUTATIONAL-BASIS.md.
+"""
+
 import argparse
 import os
 import sys
@@ -121,6 +128,11 @@ def main() -> int:
         action="store_true",
         help="Upload report CSV to backend (BACKEND_URL) for frontend download; optional PIPELINE_REPORT_WRITER_KEY",
     )
+    parser.add_argument(
+        "--no-local",
+        action="store_true",
+        help="When used with --upload: do not write report to local file (report only in backend/Supabase)",
+    )
     args = parser.parse_args()
 
     input_path = Path(args.input)
@@ -139,30 +151,36 @@ def main() -> int:
 
     latest_date = df["date"].max()
     df_latest = df[df["date"] == latest_date][["barangay_id", "risk_level", "cluster"]]
-    df_latest.to_csv(args.output, index=False)
-    print(f"Latest date: {latest_date}; wrote {len(df_latest)} rows to {args.output}", flush=True)
+    import io
+    buf = io.StringIO()
+    buf.write(CSV_INTRODUCTION.strip())
+    buf.write("\n")
+    df_latest.to_csv(buf, index=False)
+    csv_body = buf.getvalue()
 
-    # Optional: upload report to backend so users can download via frontend (no file in repo).
+    write_local = not (args.upload and args.no_local)
+    if write_local:
+        Path(args.output).write_text(csv_body, encoding="utf-8")
+        print(f"Latest date: {latest_date}; wrote {len(df_latest)} rows to {args.output}", flush=True)
+    else:
+        print(f"Latest date: {latest_date}; {len(df_latest)} rows (upload only, no local file)", flush=True)
+
     backend_url = os.environ.get("BACKEND_URL", "").rstrip("/")
     if backend_url and args.upload:
         try:
             import requests
-            csv_path = Path(args.output)
-            if csv_path.exists():
-                csv_body = csv_path.read_text(encoding="utf-8")
-                url = f"{backend_url}/api/heat/davao/pipeline-report"
-                headers = {"Content-Type": "text/csv"}
-                key = os.environ.get("PIPELINE_REPORT_WRITER_KEY")
-                if key:
-                    headers["x-pipeline-report-key"] = key
-                r = requests.post(url, data=csv_body, headers=headers, timeout=30)
-                r.raise_for_status()
-                print("Uploaded report to backend; users can download via GET /api/heat/davao/pipeline-report.", flush=True)
-            else:
-                print("Output file not found, skip upload.", file=sys.stderr)
+            url = f"{backend_url}/api/heat/davao/pipeline-report"
+            headers = {"Content-Type": "text/csv"}
+            key = os.environ.get("PIPELINE_REPORT_WRITER_KEY")
+            if key:
+                headers["x-pipeline-report-key"] = key
+            r = requests.post(url, data=csv_body, headers=headers, timeout=30)
+            r.raise_for_status()
+            print("Uploaded report to backend; users can download via GET /api/heat/davao/pipeline-report.", flush=True)
         except Exception as e:
-            print(f"Upload failed (report is still in {args.output}): {e}", file=sys.stderr)
-            # Do not fail the pipeline; upload is optional.
+            print(f"Upload failed: {e}", file=sys.stderr)
+            if write_local:
+                print(f"Report is still in {args.output}.", file=sys.stderr)
 
     return 0
 

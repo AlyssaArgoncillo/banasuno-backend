@@ -1,4 +1,4 @@
-# Moving AI pipeline CSV storage to Supabase
+# Moving pipeline CSV storage to Supabase
 
 This doc describes how to **stop saving pipeline data as CSV files in the `ai/` folder** and instead **read input from and write the final report to Supabase**.
 

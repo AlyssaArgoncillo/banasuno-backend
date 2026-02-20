@@ -95,7 +95,7 @@ create index idx_heat_snapshots_city_recorded
   on public.heat_snapshots (city_id, recorded_at desc);
 ```
 
-- **source**: optional (e.g. `meteosource`, `weatherapi`).
+- **source**: optional (e.g. `weatherapi`).
 
 ### 3.2 Table: `heat_snapshot_barangays` (per-barangay detail)
 
@@ -138,4 +138,4 @@ Enable RLS and add policies as needed (e.g. allow anonymous read for public dash
 
 CSV column names and types in this doc match the Supabase columns so exports can be generated directly from Supabase queries or from in-memory snapshot data in the backend.
 
-**AI pipeline storage:** To store the weighted heat risk pipeline’s input and final report in Supabase instead of CSV files in `ai/`, use the tables and flow described in **`docs/PIPELINE-SUPABASE.md`** (`pipeline_barangay_data`, `pipeline_heat_risk_report`).
+**Pipeline storage:** To store the weighted heat risk pipeline’s input and final report in Supabase instead of CSV files in `ai/`, use the tables and flow described in **`docs/PIPELINE-SUPABASE.md`** (`pipeline_barangay_data`, `pipeline_heat_risk_report`).

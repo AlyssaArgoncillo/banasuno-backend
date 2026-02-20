@@ -54,7 +54,7 @@ This repo is set up for Vercel: the Express app is exported from `src/index.js` 
 
 Before the first deploy, run the migration SQL in **`supabase/migrations/20250220000000_app_store_tables.sql`** in the Supabase SQL Editor so the `health_facilities_davao` and `pipeline_report` tables exist. Then seed facilities with `npm run seed:facilities` locally (pointing at the same Supabase project) or via a one-off script.
 
-Optional: **WEATHER_API_KEY** and/or **METEOSOURCE_API_KEY** for heat/forecast; see `.env.example`.
+Optional: **WEATHER_API_KEY** for heat/forecast; see `.env.example`.
 
 ### After deploy
 

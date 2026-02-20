@@ -1,6 +1,6 @@
-# AI pipeline – computational basis and validation
+# Pipeline – computational basis and validation
 
-This document describes the **computational process** of the weighted heat risk pipeline in `ai/` and what is **validated** vs standard practice.
+This document describes the **computational process** of the weighted heat risk pipeline in `ai/` (K-Means clustering + weighted features) and what is **validated** vs standard practice.
 
 **User-facing disclaimers (what it does, where it comes from, validity):** See **docs/DISCLAIMERS.md** § 4. The APIs **GET /api/heat/davao/pipeline-report/meta** and **POST .../pipeline-report/generate** return `disclaimer`, `sources`, and `validity` for in-app display.
 
@@ -45,7 +45,7 @@ This document describes the **computational process** of the weighted heat risk 
    So every barangay gets a **risk_level** in {1, 2, 3, 4, 5} that matches PAGASA’s five categories.
 
 9. **Output**  
-   For the **latest date** in the CSV, write one row per barangay: `barangay_id`, `risk_level`, `cluster`.
+   For the **latest date** in the CSV, write one row per barangay: `barangay_id`, `risk_level`, `cluster`. The file begins with an **introduction comment block** (lines starting with `#`): disclaimer, sources, and a short computation summary. See **docs/DISCLAIMERS.md** §4 and **docs/CITED-SOURCES.md**.
 
 ---
 
@@ -87,7 +87,7 @@ All cited sources, with links and DOIs, are in **docs/CITED-SOURCES.md**.
 
 | Input | Source | Validated? |
 |-------|--------|------------|
-| **Temperature** | Backend `GET /api/heat/davao/barangay-heat-risk` or `barangay-temperatures`. When the backend had humidity (Meteosource), the fetch script uses **heat_index_c** (NOAA Rothfusz, NWS SR 90-23). Otherwise air temp °C. | **Yes** when heat index is used (see **docs/HEAT-RISK-MODEL-BASIS.md**). Air temp only is not fully aligned with PAGASA heat index definition. |
+| **Temperature** | Backend `GET /api/heat/davao/barangay-heat-risk` or `barangay-temperatures`. Backend uses WeatherAPI (air temp °C per barangay). Fetch script uses that air temp. | **Yes** when heat index is used (see **docs/HEAT-RISK-MODEL-BASIS.md**). Air temp only is not fully aligned with PAGASA heat index definition. |
 | **Facility score** | Backend facilities API → `1 / (1 + facility_count)` per barangay. Fewer facilities → higher value (access/risk proxy). | **Standard proxy**; no single validated formula. Inverse relationship is common in access indices. |
 | **Population / density** | Backend `GET /api/heat/davao/barangay-population` (PSA 2020 census + GeoJSON area). persons/km². | **Data source** is official (PSA); use of density as exposure proxy is supported conceptually (e.g. Estoque et al., Reid et al.). |
 

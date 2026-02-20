@@ -8,7 +8,7 @@ This document provides the **official and scientific basis** for the heat-risk m
 
 ## Validated computational logic (when humidity is available)
 
-When the backend has **air temperature and relative humidity** per barangay (e.g. from Meteosource), the model uses a **validated** computation path:
+When the backend has **air temperature** (and optionally humidity) per barangay (e.g. from WeatherAPI), the model uses a **validated** computation path:
 
 1. **Heat index (apparent temperature)**  
    Computed with the **NOAA / NWS Rothfusz regression** (National Weather Service Technical Attachment **SR 90-23**, Lans P. Rothfusz, 1990).  

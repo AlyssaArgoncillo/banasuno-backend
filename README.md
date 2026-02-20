@@ -79,8 +79,8 @@ The health facilities data comes from the [Philippines](https://github.com/...) 
 | GET | `/api/facilities` | List facilities (query: `type`, `source`, `ownership`, `name`, `limit`, `offset`) |
 | GET | `/api/facilities/:id` | One facility by id |
 | GET | `/api/types` | Facility type summary |
-| GET | `/api/heat/:cityId/barangay-temperatures` | **Barangay heat temps only** — per-barangay °C. Optional `?limit=N` (Meteosource: 400/day; use limit in dev). Source: [Meteosource](https://www.meteosource.com/) or [WeatherAPI](https://www.weatherapi.com/) city average for all. |
-| GET | `/api/heat/:cityId/average` | **City average heat only** — single temp for Davao center. Source: WeatherAPI or Meteosource. |
+| GET | `/api/heat/:cityId/barangay-temperatures` | **Barangay heat temps only** — per-barangay °C by lat/lon (air temp). Optional `?limit=N`. Source: [WeatherAPI](https://www.weatherapi.com/). |
+| GET | `/api/heat/:cityId/average` | **City average heat only** — single temp for Davao center. Source: WeatherAPI. |
 | GET | `/api/heat/:cityId/forecast` | **7- or 14-day forecast** — `?days=7` (default) or `?days=14`. Source: [WeatherAPI](https://www.weatherapi.com/). |
 | GET | `/api/heat/:cityId/barangay-heat-risk` | Barangay temps + PAGASA heat-risk levels. Optional `?limit=N`. Sources: same as barangay-temperatures. |
 | GET | `/health` | Health check (database status) |
@@ -91,7 +91,7 @@ This backend is a **separate app** from the BanasUno frontend. Deploying the fro
 
 ## Env vars
 
-See `.env.example`. **Required:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `FACILITIES_JSON_PATH`, `PORT`. For **different heat temps per barangay** use `METEOSOURCE_API_KEY`; `WEATHER_API_KEY` alone gives one city average for all. Optional: **Edge Function** (`HEAT_WRITER_KEY` + `HEAT_SNAPSHOT_WRITER_URL` or `SUPABASE_PROJECT_REF`) to write snapshots—keep keys server-side only. **Production:** set `CORS_ORIGIN` to your frontend origin (e.g. `https://your-app.vercel.app`) to restrict CORS; unset = `*`.
+See `.env.example`. **Required:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. For heat/forecast: `WEATHER_API_KEY` (per-barangay temps by lat,lon). Optional: `FACILITIES_JSON_PATH`, `PORT`; **heat options** `HEAT_PER_BARANGAY=1` (one request per barangay), `HEAT_UHI_MAX` (urban heat island °C); **Edge Function** (`HEAT_WRITER_KEY` + `HEAT_SNAPSHOT_WRITER_URL` or `SUPABASE_PROJECT_REF`). **Production:** set `CORS_ORIGIN` to your frontend origin; unset = `*`.
 
 ## Sources & disclaimers (transparency)
 
@@ -99,8 +99,8 @@ Data used by the heat and forecast APIs comes from third-party providers and is 
 
 | Data | Source | Use / limitation |
 |------|--------|-------------------|
-| **Barangay temperatures** | [Meteosource](https://www.meteosource.com/) (per-point) or [WeatherAPI](https://www.weatherapi.com/) (city center) | Model/API output; not a substitute for official heat advisories or local stations. |
-| **City average** | WeatherAPI or Meteosource (Davao center) | Same as above. |
+| **Barangay temperatures** | [WeatherAPI](https://www.weatherapi.com/) (per-barangay by lat,lon) | Model/API output; not a substitute for official heat advisories or local stations. |
+| **City average** | WeatherAPI (Davao center) | Same as above. |
 | **7/14-day forecast** | [WeatherAPI](https://www.weatherapi.com/) | Third-party; for general planning only; not from PAGASA/NWS. |
 | **Heat risk levels (1–5)** | PAGASA heat index bands + NOAA Rothfusz (when humidity available) | Validated methods; for awareness only; not official PAGASA advisories. |
 | **Pipeline report** | Temp + facilities (Postgres) + population (PSA + GeoJSON); K-Means, EWA | For prioritization only; not an official health or hazard report. |
@@ -121,3 +121,5 @@ CSV export format and Supabase schema (heat snapshots, snapshot-by-barangay) are
 ## Testing APIs with real data
 
 **`docs/TESTING-COMMANDS.md`** – curl commands and scripts to verify each API and model (facilities, heat, forecast, health) with real data. Includes required env and a quick checklist.
+
+**`docs/API-SAMPLES.md`** – Sample JSON request/response bodies for all backend endpoints (health, facilities, heat, pipeline report).

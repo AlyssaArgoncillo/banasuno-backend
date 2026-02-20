@@ -1,6 +1,8 @@
-# Heat API – Barangay temperature & heuristic model
+# Heat API – Barangay temperature & heat risk
 
-This document describes the **backend** API and logic for barangay-level temperature / heat data. The backend is the source of truth; the frontend only consumes the API and renders the heat map.
+This document describes the **backend** API and logic for barangay-level temperature and heat risk. The backend is the source of truth; the frontend consumes the API and renders the heat map. **Two different approaches** are in use: **live map** (rule-based, validated) and **pipeline report** (K-Means clustering + weighted features; a standard ML algorithm for batch grouping, not “AI” in the sense of adaptive or generative systems).
+
+**Sample JSON** for all heat and other backend endpoints: **docs/API-SAMPLES.md**.
 
 ---
 
@@ -12,28 +14,31 @@ This document describes the **backend** API and logic for barangay-level tempera
 GET /api/heat/:cityId/barangay-temperatures
 ```
 
-**Query (optional, for future use)**  
-`?date=YYYY-MM-DD` or `?timestamp=...` for point-in-time.
+**Query**  
+- **`?limit=N`** – Cap number of barangays fetched (e.g. `?limit=20`). Omit for all barangays.
 
 **Response**
 
 ```json
 {
-  "temperatures": {
-    "1130700001": 31.2,
-    "1130700002": 33.1
-  },
+  "temperatures": { "1130700001": 31.2, "1130700002": 33.1 },
   "min": 26,
   "max": 39,
-  "averageTemp": 30.5,
-  "updatedAt": "2025-02-15T12:00:00Z"
+  "meta": {
+    "uniqueLocations": 2,
+    "perBarangay": false,
+    "uhiMaxC": 0,
+    "autoSpreadApplied": false
+  }
 }
 ```
 
-- **`temperatures`** – Map of barangay identifier (PSGC `adm4_psgc` or feature `id`) → temperature (°C). Keys must match the GeoJSON used by the frontend.
-- **`min`** / **`max`** – Range for the legend and for normalizing to 0–1 intensity on the frontend.
-- **`averageTemp`** – (Optional) City-level average temperature (°C) from WeatherAPI when `WEATHER_API_KEY` is set. Omitted when not available.
-- **`updatedAt`** – (Optional) When the data was produced.
+- **`temperatures`** – Barangay ID (PSGC) → air temperature (°C). Used for validated heat risk (air temp + humidity → NOAA Rothfusz heat index when available).
+- **`min`** / **`max`** – Range for legend and normalization.
+- **`meta.uniqueLocations`** – Number of distinct WeatherAPI calls (location grouping by 3-decimal lat,lon).
+- **`meta.perBarangay`** – True when `HEAT_PER_BARANGAY=1` (one request per barangay).
+- **`meta.uhiMaxC`** – Urban heat island cap (°C) when set via `HEAT_UHI_MAX`.
+- **`meta.autoSpreadApplied`** – True when all API temps were identical and a density-based spread (0–1°C) was applied.
 
 ---
 
@@ -52,15 +57,15 @@ The frontend calls this API and uses the response in `getBarangayHeatData` → `
 ## 3. Current implementation
 
 - **Route:** `src/routes/heat.js`
-- **Different heat temp per barangay:** Use **METEOSOURCE_API_KEY**. [Meteosource](https://www.meteosource.com/documentation) point API fetches temperature per barangay (each feature’s centroid). `src/services/meteosourceService.js` + `src/lib/geo.js`. Cached by location (10 min). **Meteosource free tier: 400 requests/day** — full map (~182 barangays) uses ~182 calls; use `?limit=N` for dev or WEATHER_API_KEY for city-wide only. To avoid 429: default 5 concurrent requests; set **METEOSOURCE_CONCURRENCY** (e.g. 2–3) to lower, or **METEOSOURCE_DELAY_MS** (e.g. 200) to add a delay before each uncached request. See `.env.example`.
-- **Fallback (one temp for all):** When only `WEATHER_API_KEY` is set, [WeatherAPI](https://www.weatherapi.com/docs/) returns a single average (Davao City center) applied to all barangays. One call, cached 10 minutes.
-- Env: `METEOSOURCE_API_KEY` for per-barangay different temps; `WEATHER_API_KEY` for city average (optional with Meteosource, or sole source for uniform temp). See `.env.example`.
+- **Per-barangay temp:** [WeatherAPI](https://www.weatherapi.com/docs/) with `q=lat,lon` per centroid. **Air temperature (temp_c)** is used so the heat-risk model can apply the validated path: when **humidity** is returned by the API, backend computes **NOAA Rothfusz** heat index and maps to PAGASA levels. Cached by location (10 min). Optional **`?limit=N`**.
+- **Env:** **WEATHER_API_KEY** (required for heat). Optional: **HEAT_PER_BARANGAY=1** (one request per barangay, exact centroid); **HEAT_UHI_MAX** (0–N °C urban heat island adjustment by density rank). When the API returns the same temp for all locations, a small density-based spread (0–1°C) is applied automatically so the map is not flat. See `.env.example`.
+- **GET /api/heat/:cityId/temp-vs-feelslike** – Single WeatherAPI call for city center; returns `temp_c`, `feelslike_c`, and `difference_c` for comparison. Heat risk uses **air temp** (validated Rothfusz + PAGASA when humidity available).
 
 ### 3.1 Pipeline report (generate and download)
 
 The pipeline heat-risk report is stored in Postgres (Supabase; not in the repo). Users can **generate** it from the frontend, then **download** it.
 
-- **POST /api/heat/davao/pipeline-report/generate** – Generates the report on demand (same logic as the AI pipeline: heat + facilities + density, K-Means, PAGASA levels 1–5). May take 1–2 minutes with Meteosource (per-barangay temps). Returns `{ ok, updatedAt, rows }`. No auth required; call from the frontend to trigger generation.
+- **POST /api/heat/davao/pipeline-report/generate** – Generates the report on demand (same logic as the Python pipeline: heat + facilities + density, K-Means clustering, PAGASA levels 1–5). May take 1–2 minutes (WeatherAPI per-barangay temps). Returns `{ ok, updatedAt, rows }`. No auth required; call from the frontend to trigger generation.
 - **GET /api/heat/davao/pipeline-report** – Returns the latest report as a CSV file (`Content-Disposition: attachment`). Responds 404 if no report has been generated or uploaded.
 - **POST /api/heat/davao/pipeline-report** – Upload report (body: `text/csv`). Used by the Python pipeline when run with `--upload`. If `PIPELINE_REPORT_WRITER_KEY` is set, the request must include header `x-pipeline-report-key`.
 
@@ -71,27 +76,21 @@ The pipeline heat-risk report is stored in Postgres (Supabase; not in the repo).
 3. **Disclaimers** – Use **`GET /api/heat/davao/pipeline-report/meta`** for `disclaimer`, `sources`, and `validity` to show next to the download button. Same fields are in **`GET /api/heat/davao/barangay-heat-risk`** for the map (display near the heat map legend).
 
 **In-app disclaimers:** All relevant APIs return short **disclaimer**, **sources**, and **validity** text. Full text: **docs/DISCLAIMERS.md**.
-</think>
-
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-TodoWrite
 
 ---
 
-## 4. Heuristic AI model (target)
+## 4. Live map vs pipeline report (rule-based vs clustering)
 
-The aim is to treat this as a **heuristic AI model** so that:
+**What actually runs where?**
 
-1. **Rules and heuristics** – Explicit rules (e.g. time-of-day, land use, elevation, distance from water) can adjust or weight raw observations.
-2. **Pluggable inputs** – Temperature can come from WeatherAPI, sensor feeds, or other APIs; the model layer combines them with heuristics.
-3. **Per-barangay variation** – Move from one city-level value to per-barangay estimates using geography, proxies, or a small model.
-4. **Future ML** – The same API contract can be backed by a trained model (e.g. predicting heat index or risk) while the frontend stays unchanged.
+| Use case | What runs | Type | Where |
+|----------|-----------|------|--------|
+| **Live map** (barangay temps + risk levels on the map) | **Rule-based only.** Temperatures from WeatherAPI; risk from **NOAA Rothfusz** heat index (when humidity available) + **PAGASA** bands; score = (level−1)/4. No clustering. | Validated formula | `src/services/heatRiskModel.js`; `GET /api/heat/:cityId/barangay-heat-risk` |
+| **Pipeline report** (CSV for download / prioritization) | **K-Means clustering** (k=5), MinMaxScaler, equal-weight combination of temperature (or heat index), **facility access**, and **population density**. Cluster rank → PAGASA levels 1–5. Standard unsupervised ML for grouping, not adaptive or generative “AI.” | Batch, clustering + EWA | **`ai/weighted_heat_risk_pipeline.py`**; also **`POST /api/heat/davao/pipeline-report/generate`** (backend runs same logic). |
 
-**Suggested next steps**
+So:
 
-- Introduce a **heat model** module (e.g. `src/services/heatRiskModel.js`, which already exists) that:
-  - Takes raw inputs (weather API, optional sensors).
-  - Applies heuristic rules (e.g. feels-like, time window, barangay-level adjustments).
-  - Returns `{ temperatures, min, max }` for the existing route.
-- Keep the route thin: it calls the model and returns the JSON above.
-- Later, replace or augment the heuristic layer with a trained model that consumes the same inputs and still returns the same response shape.
+- The **pipeline** (Python script or backend generate endpoint) uses **K-Means**—a standard machine-learning algorithm—to group barangays and assign risk levels for the **report CSV**. It is used when you run the pipeline (e.g. `ai/run_pipeline.cmd`) or call **POST …/pipeline-report/generate**. We do not call it “AI” in the sense of adaptive or generative systems; it is deterministic clustering + weighted features.
+- The **live map** never uses the pipeline; it uses only the **rule-based** heat risk model (Rothfusz + PAGASA).
+
+See **ai/README.md** and **docs/PIPELINE-COMPUTATIONAL-BASIS.md** for the pipeline’s computational logic.

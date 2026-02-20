@@ -13,6 +13,7 @@ const WEATHER_API_BASE = "https://api.weatherapi.com/v1";
  * @returns {Promise<{
  *   temp_c: number,
  *   feelslike_c?: number,
+ *   humidity?: number,
  *   condition?: string,
  *   location?: {
  *     name?: string,
@@ -38,6 +39,10 @@ export async function getCurrentWeather(apiKey, q) {
   return {
     temp_c: current.temp_c,
     feelslike_c: current.feelslike_c,
+    humidity:
+      typeof current.humidity === "number" && current.humidity >= 0 && current.humidity <= 100
+        ? current.humidity
+        : undefined,
     condition: current.condition?.text,
     location: location
       ? {

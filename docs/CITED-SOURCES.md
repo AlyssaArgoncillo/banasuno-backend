@@ -1,6 +1,6 @@
 # Cited sources – Heat Risk Model and Pipeline
 
-All sources used to validate or support the **Heat Risk Model** (`src/services/heatRiskModel.js`) and the **AI pipeline** (`ai/weighted_heat_risk_pipeline.py`), with links and DOIs where available.
+All sources used to validate or support the **Heat Risk Model** (`src/services/heatRiskModel.js`) and the **weighted heat risk pipeline** (`ai/weighted_heat_risk_pipeline.py`, K-Means clustering), with links and DOIs where available.
 
 **Disclaimers (what each process does, where data comes from, validity of reports):** **docs/DISCLAIMERS.md**.
 
@@ -57,7 +57,7 @@ All sources used to validate or support the **Heat Risk Model** (`src/services/h
 
 ---
 
-## AI Pipeline
+## Pipeline (K-Means clustering)
 
 ### 5. Temperature input (validated when heat index used)
 

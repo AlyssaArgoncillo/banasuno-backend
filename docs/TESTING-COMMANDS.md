@@ -16,8 +16,8 @@ Or use the real curl if installed: `curl.exe http://localhost:3000/health`.
 |---------------------|--------------|
 | Facilities, health check, pipeline report | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | Facilities data | Run migration `supabase/migrations/20250220000000_app_store_tables.sql` in Supabase SQL Editor, then `npm run seed:facilities` (needs `FACILITIES_JSON_PATH` or file in `data/`) |
-| Barangay temperatures | **METEOSOURCE_API_KEY** for different temp per barangay; or **WEATHER_API_KEY** for one city average for all |
-| Barangay heat risk | **METEOSOURCE_API_KEY** for different heat per barangay; or **WEATHER_API_KEY** for city average for all |
+| Barangay temperatures | **WEATHER_API_KEY** (per-barangay by lat,lon) |
+| Barangay heat risk | **WEATHER_API_KEY** (same as above) |
 | Forecast (7/14 day) | `WEATHER_API_KEY` |
 
 ---
@@ -69,25 +69,34 @@ curl http://localhost:3000/api/facilities/by-barangay/1130700001
 ## 4. Heat API – barangay temperatures
 
 ```bash
-# Needs WEATHER_API_KEY or METEOSOURCE_API_KEY
+# Needs WEATHER_API_KEY. Optional: ?limit=5 for fewer barangays.
 curl http://localhost:3000/api/heat/davao/barangay-temperatures
+curl "http://localhost:3000/api/heat/davao/barangay-temperatures?limit=5"
 ```
 
-Expect: `temperatures`, `min`, `max`, and optionally `averageTemp`.
+Expect: `temperatures`, `min`, `max`, `meta` (e.g. `uniqueLocations`, `perBarangay`, `uhiMaxC`, `autoSpreadApplied`).
+
+---
+
+## 4b. Heat API – temp vs feels-like (comparison)
+
+```bash
+curl http://localhost:3000/api/heat/davao/temp-vs-feelslike
+```
+
+Expect: `temp_c`, `feelslike_c`, `difference_c` for city center. Heat risk uses **air temp** (validated Rothfusz + PAGASA when humidity available).
 
 ---
 
 ## 5. Heat API – barangay heat risk (PAGASA model)
 
 ```bash
-# With METEOSOURCE_API_KEY: per-barangay temps, risk varies. With WEATHER_API_KEY only: city average for all, uniform risk.
+# Needs WEATHER_API_KEY. Optional: ?limit=5 for fewer barangays.
 curl http://localhost:3000/api/heat/davao/barangay-heat-risk
-
-# Fewer barangays (faster; Meteosource only; limit ignored when using WeatherAPI-only)
 curl "http://localhost:3000/api/heat/davao/barangay-heat-risk?limit=5"
 ```
 
-Requires at least one of: `METEOSOURCE_API_KEY` or `WEATHER_API_KEY`. Expect: `temperatures`, `averageTemp`, `risks`, `counts`, `legend`, `basis`, `meta`.
+Requires **WEATHER_API_KEY**. Expect: `temperatures`, `averageTemp`, `risks`, `counts`, `legend`, `basis`, `meta`.
 
 ---
 
@@ -137,8 +146,9 @@ Use the backend client in code: `import { supabase, isSupabaseConfigured, pingSu
 | One facility | `curl http://localhost:3000/api/facilities/1068744746` | Supabase + seed |
 | By barangay | `curl http://localhost:3000/api/facilities/by-barangay/1130700001` | Supabase + seed |
 | Types | `curl http://localhost:3000/api/types` | Supabase + seed |
-| Barangay temps | `curl http://localhost:3000/api/heat/davao/barangay-temperatures` | WEATHER_API_KEY or METEOSOURCE_API_KEY |
-| Heat risk | `curl "http://localhost:3000/api/heat/davao/barangay-heat-risk?limit=3"` | METEOSOURCE_API_KEY or WEATHER_API_KEY |
+| Barangay temps | `curl http://localhost:3000/api/heat/davao/barangay-temperatures` | WEATHER_API_KEY |
+| Temp vs feels-like | `curl http://localhost:3000/api/heat/davao/temp-vs-feelslike` | WEATHER_API_KEY |
+| Heat risk | `curl "http://localhost:3000/api/heat/davao/barangay-heat-risk?limit=3"` | WEATHER_API_KEY |
 | Forecast 7d | `curl http://localhost:3000/api/heat/davao/forecast` | WEATHER_API_KEY |
 | Forecast 14d | `curl "http://localhost:3000/api/heat/davao/forecast?days=14"` | WEATHER_API_KEY |
 | Forecast script | `node scripts/check-forecast-days.js` | WEATHER_API_KEY |

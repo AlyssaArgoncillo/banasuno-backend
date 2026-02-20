@@ -26,7 +26,7 @@ import requests
 
 
 def get_barangay_temperatures(base_url: str, timeout: int = 120) -> dict[str, float]:
-    """Fetch barangay temperatures from heat API. May take 1–2 min when backend calls Meteosource per barangay."""
+    """Fetch barangay temperatures from heat API. May take 1–2 min when backend calls WeatherAPI per barangay."""
     url = f"{base_url.rstrip('/')}/api/heat/davao/barangay-temperatures"
     r = requests.get(url, timeout=timeout)
     r.raise_for_status()
@@ -40,7 +40,7 @@ def get_barangay_heat_risk(base_url: str, timeout: int = 120) -> tuple[dict[str,
     Fetch barangay heat-risk from backend. When backend used humidity, risks include heat_index_c (validated).
     Returns (barangay_id -> value to use as temperature, used_heat_index, temperatures_source).
     value = heat_index_c when present, else temp_c.
-    temperatures_source = "meteosource" (per-barangay) or "weatherapi" (city average for all) or "".
+    temperatures_source = "weatherapi" (per-barangay) or "".
     """
     url = f"{base_url.rstrip('/')}/api/heat/davao/barangay-heat-risk"
     r = requests.get(url, timeout=timeout)
@@ -133,7 +133,7 @@ def main() -> int:
         "--timeout",
         type=int,
         default=120,
-        help="Timeout in seconds for heat API (default 120; increase if Meteosource is slow)",
+        help="Timeout in seconds for heat API (default 120; increase if per-barangay fetch is slow)",
     )
     parser.add_argument(
         "--workers",
@@ -178,10 +178,8 @@ def main() -> int:
             print(f"Error fetching temperatures: {e}", file=sys.stderr)
             return 1
     else:
-        if temperatures_source == "meteosource":
-            print("  Per-barangay temperatures (Meteosource live).", flush=True)
-        elif temperatures_source == "weatherapi":
-            print("  City average applied to all barangays (WeatherAPI fallback).", flush=True)
+        if temperatures_source == "weatherapi":
+            print("  Per-barangay temperatures (WeatherAPI live).", flush=True)
         else:
             print("  Using temperatures from barangay-heat-risk.", flush=True)
         if used_heat_index:

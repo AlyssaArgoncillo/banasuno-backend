@@ -44,7 +44,7 @@ function tempToPAGASALevel(tempC) {
  * Score uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level − 1) / 4.
  * No delta or density in score; delta_c, population, density are reported for information only.
  *
- * @param {{ [barangayId: string]: number }} temperatures - Barangay-level temps (°C), e.g. from Meteosource
+ * @param {{ [barangayId: string]: number }} temperatures - Barangay-level temps (°C), e.g. from WeatherAPI
  * @param {{ averageTemp?: number, humidityByBarangay?: { [id: string]: number }, populationDensityByBarangay?: { [id: string]: { population: number, density: number } } }} opts - Optional city average (for delta_c only); optional RH % (enables validated NOAA heat index); optional population/density (reported only)
  * @returns {{
  *   risks: { [barangayId: string]: { score: number, level: number, label: string, temp_c: number, heat_index_c?: number, delta_c: number, population?: number, density?: number } },
