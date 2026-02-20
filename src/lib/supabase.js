@@ -31,7 +31,7 @@ export const isSupabaseConfigured = Boolean(supabase);
 export async function pingSupabase() {
   if (!supabase) return { ok: false, error: "not_configured" };
   try {
-    const { error } = await supabase.from("heat_snapshots").select("id").limit(1);
+    const { error } = await supabase.from("health_facilities_davao").select("id").limit(1);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (err) {

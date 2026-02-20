@@ -1,12 +1,12 @@
 /**
- * Seed Redis with Davao City health facilities from JSON.
+ * Seed Supabase (Postgres) with Davao City health facilities from JSON.
  *
  * Set FACILITIES_JSON_PATH to the path to davao-health-facilities.json, e.g.:
  *   - Linux/macOS (bash/zsh): FACILITIES_JSON_PATH=/path/to/davao-health-facilities.json
  *   - Windows (PowerShell):  $env:FACILITIES_JSON_PATH="C:\path\to\davao-health-facilities.json"
  *   - Windows (cmd):         set FACILITIES_JSON_PATH=C:\path\to\davao-health-facilities.json
  *
- * Or copy/link the file into this repo and point to it.
+ * Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in .env.
  *
  * Run: npm run seed:facilities
  */
@@ -15,12 +15,10 @@ import "dotenv/config";
 import { readFileSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
-import Redis from "ioredis";
-import { FACILITIES_KEY } from "../src/lib/constants.js";
+import { setFacilities } from "../src/lib/store.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const redisUrl = process.env.REDIS_URL || "redis://localhost:6379";
 const defaultPath = join(__dirname, "..", "data", "davao-health-facilities.json");
 const jsonPath = process.env.FACILITIES_JSON_PATH || defaultPath;
 
@@ -39,14 +37,18 @@ async function main() {
     process.exit(1);
   }
 
-  const redis = new Redis(redisUrl);
+  if (!Array.isArray(facilities)) {
+    console.error("JSON must be an array of facilities.");
+    process.exit(1);
+  }
+
   try {
-    await redis.set(FACILITIES_KEY, JSON.stringify(facilities));
-    const len = await redis.strlen(FACILITIES_KEY);
-    console.log("Seeded Redis:", facilities.length, "facilities");
-    console.log("Key:", FACILITIES_KEY, "(", len, "bytes )");
-  } finally {
-    redis.disconnect();
+    await setFacilities(facilities);
+    console.log("Seeded Supabase (health_facilities_davao):", facilities.length, "facilities");
+  } catch (err) {
+    console.error("Failed to write to Supabase:", err.message);
+    console.error("Ensure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set and the migration has been run.");
+    process.exit(1);
   }
 }
 

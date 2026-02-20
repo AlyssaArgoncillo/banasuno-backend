@@ -43,7 +43,7 @@ function nearestBarangayId(lat, lng, centroids) {
 /**
  * Assign each facility to its nearest barangay (by barangay lat/lon only), then return facilities for one barangay.
  * @param {string} barangayId - Barangay id (e.g. PSGC adm4_psgc 1130700001)
- * @param {Array<{ latitude?: number, longitude?: number, [key: string]: unknown }>} facilities - Full list from Redis
+ * @param {Array<{ latitude?: number, longitude?: number, [key: string]: unknown }>} facilities - Full list from store (Postgres)
  * @returns {Promise<{ barangayId: string, facilities: Array, total: number, found: boolean }>}
  */
 export async function assessFacilitiesInBarangay(barangayId, facilities) {

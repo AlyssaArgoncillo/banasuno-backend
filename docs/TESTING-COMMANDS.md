@@ -14,9 +14,8 @@ Or use the real curl if installed: `curl.exe http://localhost:3000/health`.
 
 | What you're testing | Required env |
 |---------------------|--------------|
-| Facilities, health check | `REDIS_URL` |
-| Facilities data | Redis + run `npm run seed:facilities` (needs `FACILITIES_JSON_PATH`) |
-| **Supabase (Postgres)** | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (create tables from `docs/DATA_EXPORT.md` §3 for health to show connected) |
+| Facilities, health check, pipeline report | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
+| Facilities data | Run migration `supabase/migrations/20250220000000_app_store_tables.sql` in Supabase SQL Editor, then `npm run seed:facilities` (needs `FACILITIES_JSON_PATH` or file in `data/`) |
 | Barangay temperatures | **METEOSOURCE_API_KEY** for different temp per barangay; or **WEATHER_API_KEY** for one city average for all |
 | Barangay heat risk | **METEOSOURCE_API_KEY** for different heat per barangay; or **WEATHER_API_KEY** for city average for all |
 | Forecast (7/14 day) | `WEATHER_API_KEY` |
@@ -33,23 +32,23 @@ Invoke-WebRequest -Uri http://localhost:3000/api -UseBasicParsing | Select-Objec
 
 **Bash / curl:**
 ```bash
-# Server, Redis, and Supabase status (Supabase shows connected only if env set and heat_snapshots exists)
+# Server and database status (database = Supabase/Postgres; run app store migration first)
 curl http://localhost:3000/health
 
 # List of endpoints
 curl http://localhost:3000/api
 ```
 
-**Supabase in `/health`:** If `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are set, the response includes `supabase: "connected"` (after a quick query to `heat_snapshots`), `"not_configured"` (env missing), or `"error"` (e.g. wrong key or table not created yet). Create the schema in `docs/DATA_EXPORT.md` §3 in the Supabase SQL editor so the health check can succeed.
+**Database in `/health`:** The response includes `database: "connected"` when Supabase is configured and the app store tables exist, `"not_configured"` (env missing), or `"error"` (e.g. wrong key or tables not created). Run `supabase/migrations/20250220000000_app_store_tables.sql` in the Supabase SQL Editor.
 
 **If Supabase stays `not_configured`:** In your backend `.env` (in the project root, same folder as `package.json`) use **exactly** these names (no `VITE_` prefix for the key): `SUPABASE_URL=https://....supabase.co` and `SUPABASE_SERVICE_ROLE_KEY=your_secret_key`. Restart the server after changing `.env`. The backend can use `VITE_SUPABASE_URL` for the URL if `SUPABASE_URL` is missing, but the **service_role** key must be `SUPABASE_SERVICE_ROLE_KEY`.
 
 ---
 
-## 3. Facilities API (Redis + seeded data)
+## 3. Facilities API (Supabase + seeded data)
 
 ```bash
-# Seed first (once): needs REDIS_URL + FACILITIES_JSON_PATH
+# Seed first (once): needs SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY + migration run + FACILITIES_JSON_PATH (or file in data/)
 npm run seed:facilities
 
 # List facilities (optional: ?type=hospital&limit=5)
@@ -133,11 +132,11 @@ Use the backend client in code: `import { supabase, isSupabaseConfigured, pingSu
 
 | Test | Command | Requires |
 |------|---------|----------|
-| Health (Redis + Supabase) | `curl http://localhost:3000/health` | Redis; Supabase optional (env + schema) |
-| Facilities list | `curl "http://localhost:3000/api/facilities?limit=2"` | Redis + seed |
-| One facility | `curl http://localhost:3000/api/facilities/1068744746` | Redis + seed |
-| By barangay | `curl http://localhost:3000/api/facilities/by-barangay/1130700001` | Redis + seed |
-| Types | `curl http://localhost:3000/api/types` | Redis + seed |
+| Health (database) | `curl http://localhost:3000/health` | Supabase (env + app store migration) |
+| Facilities list | `curl "http://localhost:3000/api/facilities?limit=2"` | Supabase + seed |
+| One facility | `curl http://localhost:3000/api/facilities/1068744746` | Supabase + seed |
+| By barangay | `curl http://localhost:3000/api/facilities/by-barangay/1130700001` | Supabase + seed |
+| Types | `curl http://localhost:3000/api/types` | Supabase + seed |
 | Barangay temps | `curl http://localhost:3000/api/heat/davao/barangay-temperatures` | WEATHER_API_KEY or METEOSOURCE_API_KEY |
 | Heat risk | `curl "http://localhost:3000/api/heat/davao/barangay-heat-risk?limit=3"` | METEOSOURCE_API_KEY or WEATHER_API_KEY |
 | Forecast 7d | `curl http://localhost:3000/api/heat/davao/forecast` | WEATHER_API_KEY |

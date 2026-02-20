@@ -57,7 +57,7 @@ This document describes **what each process actually does**, **where the data co
 
 **Where it comes from:**
 - **Temperature / heat index:** Same as barangay heat risk (Meteosource or WeatherAPI; heat index when humidity available).
-- **Facility score:** Backend facilities data (Redis); score = **1 / (1 + facility_count)** per barangay.
+- **Facility score:** Backend facilities data (Postgres); score = **1 / (1 + facility_count)** per barangay.
 - **Population / density:** **PSA 2020** census + GeoJSON area → persons/km² (backend `barangay-population`).
 - **Method:** Equal weight approach (EWA), MinMaxScaler, K-Means k=5, cluster rank → level 1–5. See **docs/PIPELINE-COMPUTATIONAL-BASIS.md**.
 
@@ -77,7 +77,7 @@ This document describes **what each process actually does**, **where the data co
 | Barangay temperatures| Temp °C per barangay (or city-wide)   | Meteosource, WeatherAPI        | For planning; not official observations |
 | Barangay heat risk   | Level 1–5 + score from temp/heat index| NOAA Rothfusz, PAGASA          | Validated when heat index; for awareness only |
 | Forecast             | 7/14-day forecast for city            | WeatherAPI                     | Third-party; for general planning       |
-| Pipeline report      | CSV risk_level by barangay (temp + facilities + density) | Same temps, Redis facilities, PSA + GeoJSON | EWA + K-Means; for prioritization only; not official |
+| Pipeline report      | CSV risk_level by barangay (temp + facilities + density) | Same temps, Postgres facilities, PSA + GeoJSON | EWA + K-Means; for prioritization only; not official |
 
 ---
 

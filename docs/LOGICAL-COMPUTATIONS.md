@@ -91,13 +91,11 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 
 ---
 
-## 7. Redis client (retry)
+## 7. App storage (Supabase / Postgres)
 
-**File:** `src/lib/redis.js`
+**File:** `src/lib/store.js`
 
-| What | Where | Formula / logic |
-|------|--------|------------------|
-| **Retry delay** | `retryStrategy(times)` | If `times > 3` stop; else delay = `Math.min(times * 200, 2000)` ms. |
+Facilities and pipeline report are stored in Postgres via Supabase (tables `health_facilities_davao`, `pipeline_report`). See `supabase/migrations/20250220000000_app_store_tables.sql`.
 
 ---
 
@@ -107,4 +105,4 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 - **Geometry:** Centroid (mean of ring vertices); point-in-polygon (ray-casting) (`geo.js`).
 - **Assignment:** Squared distance; nearest-barangay; facility–barangay assignment (`facilitiesByBarangay.js`, `barangays.js`).
 - **Aggregation:** Min/max/average of temps; pagination offset/limit; forecast day clamping (`heat.js`, `healthFacilities.js`, `weatherService.js`).
-- **Infrastructure:** Cache TTL; concurrency cap; retry backoff (`heat.js`, `redis.js`).
+- **Infrastructure:** Cache TTL; concurrency cap; store (Supabase) for facilities and pipeline report (`store.js`, `heat.js`).

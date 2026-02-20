@@ -1,6 +1,6 @@
 # banasuno-backend
 
-Backend services for BanasUno, including REST API endpoints, Redis, and Davao City health facilities API.
+Backend services for BanasUno, including REST API endpoints and Davao City health facilities API. **Storage is Postgres via Supabase**.
 
 ## Backend setup necessities
 
@@ -10,28 +10,34 @@ Before or during setup, ensure you have:
 |-------------|---------|
 | **Node.js** | v18+ (ES modules). Check with `node -v`. |
 | **npm** | Comes with Node. Check with `npm -v`. |
-| **Redis** | A running Redis server (local or remote). The app and seed script connect via `REDIS_URL`. Default: `redis://localhost:6379`. |
-| **Env file** | Copy `.env.example` to `.env` and set `REDIS_URL` (and optionally `FACILITIES_JSON_PATH`, `PORT`) as needed. |
+| **Supabase** | A Supabase project. The app uses Postgres for facilities and pipeline report. Set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` in `.env`. |
+| **Env file** | Copy `.env.example` to `.env` and set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (and optionally `FACILITIES_JSON_PATH`, `PORT`). |
 | **Facilities data** | The file `davao-health-facilities.json` for seeding. Either place it at `data/davao-health-facilities.json` or set `FACILITIES_JSON_PATH` to its path. |
 
-**Quick checklist:** Node installed → Redis running → `.env` with `REDIS_URL` → `npm install` → seed once (`npm run seed:facilities`) → `npm start`.
+**Quick checklist:** Node installed → Supabase project + `.env` with `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` → run migration (see below) → `npm install` → seed once (`npm run seed:facilities`) → `npm start`.
 
 ## Stack
 
 - **Node.js** (ES modules)
 - **Express** – HTTP API
-- **Redis** (ioredis) – cache / data store for health facilities
+- **Supabase** (Postgres) – health facilities, pipeline report
 
 ## Setup
 
-1. Install dependencies:
+1. Create a [Supabase](https://supabase.com) project. In **Project Settings → API** copy the **Project URL** and **service_role** key.
+
+2. Copy `.env.example` to `.env` and set:
+   - `SUPABASE_URL` = your Project URL
+   - `SUPABASE_SERVICE_ROLE_KEY` = your service_role key (do not commit)
+
+3. Create the app tables in Supabase: run the SQL in **`supabase/migrations/20250220000000_app_store_tables.sql`** in the Supabase **SQL Editor** (or use `supabase db push` if you use the CLI).
+
+4. Install dependencies:
    ```bash
    npm install
    ```
 
-2. Run Redis locally (e.g. Docker: `docker run -d -p 6379:6379 redis`) or set `REDIS_URL` to your Redis instance.
-
-3. Seed Davao health facilities into Redis (required before facilities endpoints work):
+5. Seed Davao health facilities into Postgres (required before facilities endpoints work):
 
    **Option A:** Point to your Philippines extract repo (use your actual path).
 
@@ -76,11 +82,15 @@ The health facilities data comes from the [Philippines](https://github.com/...) 
 | GET | `/api/heat/:cityId/barangay-temperatures` | Barangay temperatures. Different temp per barangay: [Meteosource](https://www.meteosource.com/). Fallback: [WeatherAPI](https://www.weatherapi.com/) city average for all. |
 | GET | `/api/heat/:cityId/barangay-heat-risk` | Barangay temps + PAGASA heat-risk. Per-barangay different heat: Meteosource; optional `?limit=`. |
 | GET | `/api/heat/:cityId/forecast` | 7- or 14-day forecast from WeatherAPI (`?days=7` or `?days=14`) |
-| GET | `/health` | Health check (includes Redis status) |
+| GET | `/health` | Health check (database status) |
+
+## Deployment
+
+This backend is a **separate app** from the BanasUno frontend. Deploying the frontend to Vercel does not deploy or run this backend. To get live API data in production, deploy this backend (e.g. Railway, Render, Fly.io, or a second Vercel project) and set **`VITE_API_URL`** in the frontend’s Vercel env to your backend URL. See **`docs/DEPLOYMENT.md`**.
 
 ## Env vars
 
-See `.env.example`. Main ones: `REDIS_URL`, `FACILITIES_JSON_PATH`, `PORT`. For **different heat temps per barangay** use `METEOSOURCE_API_KEY`; `WEATHER_API_KEY` alone gives one city average for all. Optional: **Supabase** (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) for Postgres/heat snapshots; **Edge Function** (`HEAT_WRITER_KEY` + `HEAT_SNAPSHOT_WRITER_URL` or `SUPABASE_PROJECT_REF`) to write snapshots—keep keys server-side only. **Production:** set `CORS_ORIGIN` to your frontend origin (e.g. `https://your-app.vercel.app`) to restrict CORS; unset = `*`.
+See `.env.example`. **Required:** `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`. Optional: `FACILITIES_JSON_PATH`, `PORT`. For **different heat temps per barangay** use `METEOSOURCE_API_KEY`; `WEATHER_API_KEY` alone gives one city average for all. Optional: **Edge Function** (`HEAT_WRITER_KEY` + `HEAT_SNAPSHOT_WRITER_URL` or `SUPABASE_PROJECT_REF`) to write snapshots—keep keys server-side only. **Production:** set `CORS_ORIGIN` to your frontend origin (e.g. `https://your-app.vercel.app`) to restrict CORS; unset = `*`.
 
 ## Heat API and heuristic model
 

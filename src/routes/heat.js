@@ -14,8 +14,12 @@ import { getCurrentWeather as getWeatherMeteosource } from "../services/meteosou
 import { getDavaoBarangayGeo, getBarangayCentroids } from "../lib/barangays.js";
 import { getPopulationDensityByBarangayId } from "../lib/populationByBarangay.js";
 import { assessBarangayHeatRisk } from "../services/heatRiskModel.js";
-import { redis } from "../lib/redis.js";
-import { FACILITIES_KEY, PIPELINE_REPORT_KEY, PIPELINE_REPORT_UPDATED_KEY } from "../lib/constants.js";
+import {
+  getFacilities,
+  getPipelineReport,
+  getPipelineReportMeta,
+  setPipelineReport,
+} from "../lib/store.js";
 import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
 import { runPipelineReport } from "../services/pipelineReportGenerator.js";
 import {
@@ -93,9 +97,6 @@ router.get("/heat/:cityId/barangay-population", async (req, res) => {
   }
 });
 
-/** TTL for pipeline report in Redis (7 days). */
-const PIPELINE_REPORT_TTL_SEC = 604800;
-
 /**
  * GET /api/heat/:cityId/pipeline-report/meta
  * Returns disclaimer, sources, validity, and updatedAt for the pipeline report (for display when offering download).
@@ -106,10 +107,9 @@ router.get("/heat/:cityId/pipeline-report/meta", async (req, res) => {
     return res.status(404).json({ error: "City not supported", cityId });
   }
   try {
-    const updatedAt = await redis.get(PIPELINE_REPORT_UPDATED_KEY);
-    const available = await redis.get(PIPELINE_REPORT_KEY);
+    const { available, updatedAt } = await getPipelineReportMeta(cityId);
     return res.json({
-      available: available != null && available !== "",
+      available,
       updatedAt: updatedAt || null,
       disclaimer: PIPELINE_REPORT_DISCLAIMER,
       sources: PIPELINE_REPORT_SOURCES,
@@ -124,7 +124,7 @@ router.get("/heat/:cityId/pipeline-report/meta", async (req, res) => {
 
 /**
  * GET /api/heat/:cityId/pipeline-report
- * Returns the latest pipeline heat-risk report CSV for download (stored in Redis by pipeline script).
+ * Returns the latest pipeline heat-risk report CSV for download (stored in Postgres by pipeline script).
  * Frontend can link or fetch this URL and trigger a file download.
  */
 router.get("/heat/:cityId/pipeline-report", async (req, res) => {
@@ -133,15 +133,14 @@ router.get("/heat/:cityId/pipeline-report", async (req, res) => {
     return res.status(404).json({ error: "City not supported", cityId });
   }
   try {
-    const csv = await redis.get(PIPELINE_REPORT_KEY);
+    const { csv, updatedAt } = await getPipelineReport(cityId);
     if (csv == null || csv === "") {
       return res.status(404).json({
         error: "No pipeline report available",
         hint: "Run the AI pipeline and upload the report (POST with x-pipeline-report-key), or wait for the next scheduled run.",
       });
     }
-    const updated = await redis.get(PIPELINE_REPORT_UPDATED_KEY);
-    const filename = `barangay_heat_risk_${cityId}_${(updated || "latest").replace(/[:.]/g, "-")}.csv`;
+    const filename = `barangay_heat_risk_${cityId}_${(updatedAt || "latest").replace(/[:.]/g, "-")}.csv`;
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     return res.send(csv);
@@ -189,8 +188,8 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
 
     let facilities = [];
     try {
-      const raw = await redis.get(FACILITIES_KEY);
-      if (raw) facilities = JSON.parse(raw);
+      facilities = await getFacilities();
+      if (!Array.isArray(facilities)) facilities = [];
     } catch (e) {
       console.warn("Facilities not loaded for pipeline generate:", e?.message);
     }
@@ -221,9 +220,7 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
     }
 
     const csv = runPipelineReport(rows);
-    const now = new Date().toISOString();
-    await redis.set(PIPELINE_REPORT_KEY, csv, "EX", PIPELINE_REPORT_TTL_SEC);
-    await redis.set(PIPELINE_REPORT_UPDATED_KEY, now, "EX", PIPELINE_REPORT_TTL_SEC);
+    const now = await setPipelineReport(cityId, csv);
 
     return res.status(200).json({
       ok: true,
@@ -244,7 +241,7 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
  * POST /api/heat/:cityId/pipeline-report
  * Upload the latest pipeline heat-risk report CSV (e.g. from ai/run_pipeline.cmd).
  * Body: raw CSV. If PIPELINE_REPORT_WRITER_KEY is set, require header x-pipeline-report-key.
- * Report is stored in Redis and served by GET for frontend download.
+ * Report is stored in Postgres and served by GET for frontend download.
  */
 router.post(
   "/heat/:cityId/pipeline-report",
@@ -264,9 +261,7 @@ router.post(
       return res.status(400).json({ error: "Empty body", hint: "POST CSV with Content-Type: text/csv." });
     }
     try {
-      const now = new Date().toISOString();
-      await redis.set(PIPELINE_REPORT_KEY, csv, "EX", PIPELINE_REPORT_TTL_SEC);
-      await redis.set(PIPELINE_REPORT_UPDATED_KEY, now, "EX", PIPELINE_REPORT_TTL_SEC);
+      const now = await setPipelineReport(cityId, csv);
       return res.status(201).json({
         ok: true,
         updatedAt: now,

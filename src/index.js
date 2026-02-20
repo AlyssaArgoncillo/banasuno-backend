@@ -1,11 +1,10 @@
 /**
- * BanasUno backend – Express API with Redis.
- * Health facilities (Davao City) are served from Redis; seed with npm run seed:facilities.
+ * BanasUno backend – Express API with Supabase (Postgres).
+ * Health facilities and pipeline report are stored in Postgres; seed with npm run seed:facilities.
  */
 
 import "dotenv/config";
 import express from "express";
-import { redis } from "./lib/redis.js";
 import { pingSupabase } from "./lib/supabase.js";
 import healthFacilities from "./routes/healthFacilities.js";
 import heat from "./routes/heat.js";
@@ -52,29 +51,28 @@ app.get("/api", (req, res) => {
 });
 
 app.get("/health", async (req, res) => {
-  const health = { status: "ok", redis: null, supabase: null };
-  try {
-    await redis.ping();
-    health.redis = "connected";
-  } catch (e) {
-    health.status = "error";
-    health.redis = "disconnected";
-  }
+  const health = { status: "ok", database: null };
   const supabasePing = await pingSupabase();
   if (supabasePing.ok) {
-    health.supabase = "connected";
+    health.database = "connected";
   } else if (supabasePing.error === "not_configured") {
-    health.supabase = "not_configured";
+    health.database = "not_configured";
+    health.status = "error";
   } else {
-    health.supabase = "error";
-    health.supabase_error = supabasePing.error;
-    health.status = "error"; // configured but failed → unhealthy
+    health.database = "error";
+    health.database_error = supabasePing.error;
+    health.status = "error";
   }
   const statusCode = health.status === "ok" ? 200 : 503;
   res.status(statusCode).json(health);
 });
 
-app.listen(PORT, () => {
-  console.log(`BanasUno backend: http://localhost:${PORT}`);
-  console.log(`  GET /api/facilities, /api/facilities/:id, /api/types, /api/heat/:cityId/barangay-temperatures, /api/heat/:cityId/barangay-heat-risk, /api/heat/:cityId/forecast`);
-});
+/** Export for Vercel serverless; only listen when running locally */
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`BanasUno backend: http://localhost:${PORT}`);
+    console.log(`  GET /api/facilities, /api/facilities/:id, /api/types, /api/heat/:cityId/barangay-temperatures, /api/heat/:cityId/barangay-heat-risk, /api/heat/:cityId/forecast`);
+  });
+}

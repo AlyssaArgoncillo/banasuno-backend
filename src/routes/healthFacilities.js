@@ -1,30 +1,19 @@
 /**
- * Davao City health facilities API – reads from Redis.
- * Data is stored at key health:facilities:davao (JSON array).
- * Seed with: npm run seed:facilities
+ * Davao City health facilities API – reads from Supabase (Postgres).
+ * Data is in table health_facilities_davao. Seed with: npm run seed:facilities
  */
 
 import { Router } from "express";
-import { redis } from "../lib/redis.js";
+import { getFacilities } from "../lib/store.js";
 import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
-import { FACILITIES_KEY } from "../lib/constants.js";
 
 const router = Router();
-
-async function getFacilities() {
-  const raw = await redis.get(FACILITIES_KEY);
-  if (!raw) return [];
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return [];
-  }
-}
 
 /** GET /api/facilities – list with optional filters */
 router.get("/facilities", async (req, res) => {
   try {
     let list = await getFacilities();
+    list = Array.isArray(list) ? list : [];
     const { type, source, ownership, name, limit = "100", offset = "0" } = req.query;
 
     if (type) {

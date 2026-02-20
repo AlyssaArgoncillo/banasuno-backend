@@ -10,7 +10,7 @@ This guide explains how to use the BanasUno backend: heat data, heat-risk assess
 |--------|----------------|
 | **Barangay temperatures** | Different temp per barangay: Meteosource (per centroid). Fallback: WeatherAPI gives one city average for all. |
 | **Heat risk assessment** | Takes barangay-level temperatures and assigns a 5-level category using **PAGASA heat index** (Not Hazardous &lt;27°C → Extreme Danger ≥52°C). See [PAGASA heat index](https://www.pagasa.dost.gov.ph/weather/heat-index). |
-| **Health facilities** | Serves Davao health facilities from Redis. **By barangay:** facilities are assigned to the barangay whose centroid (lat/lon) is nearest to the facility; barangays have only lat/lon, no polygon. |
+| **Health facilities** | Serves Davao health facilities from Postgres (Supabase). **By barangay:** facilities are assigned to the barangay whose centroid (lat/lon) is nearest to the facility; barangays have only lat/lon, no polygon. |
 
 **Data flow for heat map:**
 
@@ -227,7 +227,7 @@ const { risks, legend, temperatures } = data;
 
 ## 6. Scripts and diagnostics
 
-- **Seed facilities:** `npm run seed:facilities` (needs Redis + `FACILITIES_JSON_PATH` or file in `data/`). Not needed for heat/risk.
+- **Seed facilities:** `npm run seed:facilities` (needs Supabase + `FACILITIES_JSON_PATH` or file in `data/`). Not needed for heat/risk.
 - **Check WeatherAPI per point (diagnostic):** `node scripts/check-weatherapi-per-barangay.js` (uses `WEATHER_API_KEY`). Compares several barangay coordinates to see if WeatherAPI returns different temps or same regional value.
 
 ---
@@ -239,7 +239,7 @@ const { risks, legend, temperatures } = data;
 | Barangay temps only | `GET /api/heat/davao/barangay-temperatures` | Meteosource and/or WeatherAPI |
 | Temps + PAGASA heat index (5 levels) for map | `GET /api/heat/davao/barangay-heat-risk` | **METEOSOURCE_API_KEY** required; WeatherAPI optional for average |
 | 7- or 14-day forecast (trend) | `GET /api/heat/davao/forecast?days=7\|14` | **WEATHER_API_KEY** required |
-| Health facilities | `GET /api/facilities`, etc. | Redis + seed (see README) |
-| Facilities in a barangay | `GET /api/facilities/by-barangay/:barangayId` | Redis + seed. Uses nearest barangay (lat/lon only). |
+| Health facilities | `GET /api/facilities`, etc. | Supabase + seed (see README) |
+| Facilities in a barangay | `GET /api/facilities/by-barangay/:barangayId` | Supabase + seed. Uses nearest barangay (lat/lon only). |
 
 The **temperature used in the heat risk model is the barangay-level temperature fetched from Meteosource** (one per centroid). The heat-risk endpoint requires Meteosource so that risk is always computed from these per-barangay temps.

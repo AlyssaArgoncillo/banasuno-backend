@@ -1,7 +1,8 @@
 {
   "name": "banasuno-backend",
   "version": "1.0.0",
-  "description": "Backend services for BanasUno with Redis",
+  "engines": { "node": ">=18" },
+  "description": "Backend services for BanasUno with Supabase (Postgres)",
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
@@ -12,8 +13,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.97.0",
     "dotenv": "^17.3.1",
-    "express": "^4.21.0",
-    "ioredis": "^5.4.1"
+    "express": "^4.21.0"
   },
   "devDependencies": {
     "supabase": "^2.76.10"

@@ -4,7 +4,7 @@ Quick review of secrets and safe defaults in this repo.
 
 ## What we do
 
-- **Secrets from env only** – No API keys, Supabase keys, or Redis URLs are hardcoded. All are read from `process.env` (via `.env`).
+- **Secrets from env only** – No API keys or Supabase keys are hardcoded. All are read from `process.env` (via `.env`).
 - **`.env` is gitignored** – So local secrets are not committed. Use `.env.example` as a template (no real values).
 - **Supabase** – Backend uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` only on the server; never exposed to the frontend. Docs say not to commit the service_role key.
 - **Health endpoint** – Returns only status strings (`connected` / `not_configured` / `error`) and a generic `supabase_error` message (e.g. from Postgres); no keys or stack traces.

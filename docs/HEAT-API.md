@@ -58,7 +58,7 @@ The frontend calls this API and uses the response in `getBarangayHeatData` → `
 
 ### 3.1 Pipeline report (generate and download)
 
-The pipeline heat-risk report is stored in Redis (not in the repo). Users can **generate** it from the frontend, then **download** it.
+The pipeline heat-risk report is stored in Postgres (Supabase; not in the repo). Users can **generate** it from the frontend, then **download** it.
 
 - **POST /api/heat/davao/pipeline-report/generate** – Generates the report on demand (same logic as the AI pipeline: heat + facilities + density, K-Means, PAGASA levels 1–5). May take 1–2 minutes with Meteosource (per-barangay temps). Returns `{ ok, updatedAt, rows }`. No auth required; call from the frontend to trigger generation.
 - **GET /api/heat/davao/pipeline-report** – Returns the latest report as a CSV file (`Content-Disposition: attachment`). Responds 404 if no report has been generated or uploaded.

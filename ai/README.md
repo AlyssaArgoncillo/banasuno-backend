@@ -23,7 +23,7 @@ pip install -r requirements.txt
 
 ## Test run (quick)
 
-**Prerequisites:** Backend running (`npm start` in repo root), Redis + facilities seeded (`npm run seed:facilities`), and at least one of `WEATHER_API_KEY` or `METEOSOURCE_API_KEY` in `.env` so the heat API returns data.
+**Prerequisites:** Backend running (`npm start` in repo root), Supabase + facilities seeded (`npm run seed:facilities`), and at least one of `WEATHER_API_KEY` or `METEOSOURCE_API_KEY` in `.env` so the heat API returns data.
 
 **Terminal 1 – backend:**
 ```bash
@@ -40,7 +40,7 @@ python fetch_pipeline_data.py
 python weighted_heat_risk_pipeline.py --input barangay_data_today.csv --no-rolling --output barangay_heat_risk_today.csv --upload
 ```
 
-On Linux/macOS use `export BACKEND_URL=http://localhost:3000` instead of `set`. With `--upload`, the report is sent to the backend (Redis); users download it via the frontend (see **Report download** below).
+On Linux/macOS use `export BACKEND_URL=http://localhost:3000` instead of `set`. With `--upload`, the report is sent to the backend (Postgres); users download it via the frontend (see **Report download** below).
 
 **Windows: "Python was not found"** – Use the runner script (uses `py` launcher): from repo root run **`ai\run_pipeline.cmd`** or **`.\ai\run_pipeline.ps1`**. Or run by hand: `py -m pip install -r requirements.txt`, `py fetch_pipeline_data.py`, then `py weighted_heat_risk_pipeline.py --input barangay_data_today.csv --no-rolling --output barangay_heat_risk_today.csv`. If `py` is not found, install Python from [python.org](https://www.python.org/downloads/) and tick "Add Python to PATH".
 
@@ -50,7 +50,7 @@ You should see: fetch writes `barangay_data_today.csv` (one row per barangay); p
 
 Reports are **not** stored in the repo. When you run the pipeline with **`--upload`** (default in `run_pipeline.cmd`):
 
-1. The pipeline POSTs the report CSV to the backend; the backend stores it in **Redis**.
+1. The pipeline POSTs the report CSV to the backend; the backend stores it in **Postgres** (Supabase).
 2. Users download the latest report via the **frontend**: the frontend calls **`GET /api/heat/davao/pipeline-report`** and triggers a file download (e.g. "Download heat risk report" button that opens that URL or fetches and downloads the blob).
 
 Backend env (optional): **`PIPELINE_REPORT_WRITER_KEY`** – if set, the pipeline must send the same value in the **`x-pipeline-report-key`** header when uploading. See `.env.example`.
