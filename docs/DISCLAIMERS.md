@@ -85,10 +85,11 @@ This document describes **what each process actually does**, **where the data co
 
 ---
 
-## API response fields (for frontend)
+## Display text for frontend
 
-- **GET /api/heat/davao/barangay-temperatures** – Response includes `disclaimer`, `sources`, `validity`. Display when showing temperature data or heat map data source.
-- **GET /api/heat/davao/barangay-heat-risk** – Response includes `disclaimer`, `sources`, `validity` (and `basis`, `usedHeatIndex`). Display near the heat map legend.
-- **GET /api/heat/davao/forecast** – Response includes `disclaimer`, `sources`, `validity`. Display when showing the 7/14-day forecast.
-- **GET /api/heat/davao/pipeline-report/meta** – Returns `available`, `updatedAt`, `disclaimer`, `sources`, `validity`, `docs`. Use when showing the pipeline report download section.
-- **POST /api/heat/davao/pipeline-report/generate** – Response includes `disclaimer`, `sources`, `validity` so the frontend can show them after generation.
+Heat APIs do not return `disclaimer`, `sources`, or `validity` in the response body. Use this document and **docs/CITED-SOURCES.md** to build in-app disclaimers and source attributions:
+
+- **Barangay temperatures / heat map** – Use §1 above (barangay temperatures) for source and validity text.
+- **Barangay heat risk** – Use §2 (barangay heat risk); response still includes `basis`, `usedHeatIndex` for context.
+- **Forecast** – Use §3 (forecast).
+- **Pipeline report** – **GET /api/heat/davao/pipeline-report/meta** returns `available`, `updatedAt`; use §4 and **docs/CITED-SOURCES.md** for disclaimer/sources when showing the download section.

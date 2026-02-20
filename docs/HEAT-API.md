@@ -52,7 +52,7 @@ The frontend calls this API and uses the response in `getBarangayHeatData` → `
 ## 3. Current implementation
 
 - **Route:** `src/routes/heat.js`
-- **Different heat temp per barangay:** Use **METEOSOURCE_API_KEY**. [Meteosource](https://www.meteosource.com/documentation) point API fetches temperature per barangay (each feature’s centroid). `src/services/meteosourceService.js` + `src/lib/geo.js`. Cached by location (10 min). To avoid rate limits: default 5 concurrent requests; set **METEOSOURCE_CONCURRENCY** (e.g. 2–3) to lower, or **METEOSOURCE_DELAY_MS** (e.g. 200) to add a delay before each uncached request. See `.env.example`.
+- **Different heat temp per barangay:** Use **METEOSOURCE_API_KEY**. [Meteosource](https://www.meteosource.com/documentation) point API fetches temperature per barangay (each feature’s centroid). `src/services/meteosourceService.js` + `src/lib/geo.js`. Cached by location (10 min). **Meteosource free tier: 400 requests/day** — full map (~182 barangays) uses ~182 calls; use `?limit=N` for dev or WEATHER_API_KEY for city-wide only. To avoid 429: default 5 concurrent requests; set **METEOSOURCE_CONCURRENCY** (e.g. 2–3) to lower, or **METEOSOURCE_DELAY_MS** (e.g. 200) to add a delay before each uncached request. See `.env.example`.
 - **Fallback (one temp for all):** When only `WEATHER_API_KEY` is set, [WeatherAPI](https://www.weatherapi.com/docs/) returns a single average (Davao City center) applied to all barangays. One call, cached 10 minutes.
 - Env: `METEOSOURCE_API_KEY` for per-barangay different temps; `WEATHER_API_KEY` for city average (optional with Meteosource, or sole source for uniform temp). See `.env.example`.
 

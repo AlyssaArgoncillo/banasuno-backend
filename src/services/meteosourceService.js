@@ -23,7 +23,14 @@ export async function getCurrentWeather(apiKey, lat, lon) {
   url.searchParams.set("key", apiKey);
 
   const res = await fetch(url.toString());
-  if (!res.ok) return null;
+  if (process.env.NODE_ENV !== "production") {
+    console.log("Meteosource: fetch", lat.toFixed(2), lon.toFixed(2), res.status);
+  }
+  if (!res.ok) {
+    const body = await res.text();
+    console.warn("Meteosource API error:", res.status, res.statusText, body.slice(0, 200));
+    return null;
+  }
   const data = await res.json();
   const current = data?.current;
   if (!current || typeof current.temperature !== "number") return null;

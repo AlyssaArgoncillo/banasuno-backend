@@ -1,7 +1,7 @@
 {
   "name": "banasuno-backend",
   "version": "1.0.0",
-  "engines": { "node": ">=18" },
+  "engines": { "node": "20" },
   "description": "Backend services for BanasUno with Supabase (Postgres)",
   "type": "module",
   "scripts": {

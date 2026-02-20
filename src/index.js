@@ -25,6 +25,8 @@ app.use((req, res, next) => {
   next();
 });
 
+app.get("/", (req, res) => res.redirect(302, "/api"));
+
 app.use("/api", healthFacilities);
 app.use("/api", heat);
 
@@ -38,9 +40,10 @@ app.get("/api", (req, res) => {
       "GET /api/facilities/by-barangay/:barangayId": "Facilities assigned to barangay by nearest barangay lat/lon only",
       "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for AI pipeline)",
       "GET /api/types": "Facility type summary",
-      "GET /api/heat/:cityId/barangay-temperatures": "Barangay temperatures for heat map (cityId: davao)",
-      "GET /api/heat/:cityId/barangay-heat-risk": "Barangay temperatures + heuristic heat-risk assessment (optional ?limit=)",
-      "GET /api/heat/:cityId/forecast": "7- or 14-day forecast from WeatherAPI (cityId: davao, query: ?days=7|14)",
+      "GET /api/heat/:cityId/barangay-temperatures": "Barangay heat temps only (cityId: davao; optional ?limit= for heat-risk). Meteosource or WeatherAPI.",
+      "GET /api/heat/:cityId/average": "City average heat only (single temp for Davao center). WeatherAPI or Meteosource.",
+      "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (cityId: davao; query: ?days=7 or ?days=14). WeatherAPI.",
+      "GET /api/heat/:cityId/barangay-heat-risk": "Barangay temperatures + heat-risk assessment (optional ?limit=)",
       "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (PSA + GeoJSON area) for AI pipeline (cityId: davao)",
       "GET /api/heat/:cityId/pipeline-report/meta": "Disclaimer, sources, validity, updatedAt for pipeline report (for UI)",
       "GET /api/heat/:cityId/pipeline-report": "Download latest pipeline heat-risk report CSV (cityId: davao); 404 if none uploaded",

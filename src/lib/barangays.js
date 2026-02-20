@@ -11,14 +11,25 @@ const DAVAO_BARANGAYS_URL =
 let cachedGeo = null;
 
 /**
+ * Clear the in-memory GeoJSON cache (e.g. after a bad load). Next request will re-fetch.
+ */
+export function clearBarangayGeoCache() {
+  cachedGeo = null;
+}
+
+/**
  * Fetch Davao barangay GeoJSON (cached in memory).
  * @returns {Promise<{ type: string, features: import('geojson').Feature[] }>}
  */
 export async function getDavaoBarangayGeo() {
   if (cachedGeo) return cachedGeo;
   const res = await fetch(DAVAO_BARANGAYS_URL);
-  if (!res.ok) throw new Error("Failed to load barangay boundaries");
-  cachedGeo = await res.json();
+  if (!res.ok) throw new Error("Failed to load barangay boundaries: " + res.status + " " + res.statusText);
+  const geo = await res.json();
+  if (!geo?.features?.length) {
+    throw new Error("Barangay boundaries returned no features. Check: " + DAVAO_BARANGAYS_URL);
+  }
+  cachedGeo = geo;
   return cachedGeo;
 }
 
@@ -42,6 +53,9 @@ export function getBarangayCentroids(geo) {
     if (id == null || !centroid) continue;
     const [lng, lat] = centroid;
     list.push({ barangayId: id, lat, lng });
+  }
+  if (geo.features.length > 0 && list.length === 0) {
+    console.warn("Barangay GeoJSON has", geo.features.length, "features but none had valid id+centroid; check geometry/properties.");
   }
   return list;
 }
