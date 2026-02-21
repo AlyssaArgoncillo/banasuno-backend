@@ -23,14 +23,25 @@ export function clearBarangayGeoCache() {
  */
 export async function getDavaoBarangayGeo() {
   if (cachedGeo) return cachedGeo;
-  const res = await fetch(DAVAO_BARANGAYS_URL);
-  if (!res.ok) throw new Error("Failed to load barangay boundaries: " + res.status + " " + res.statusText);
-  const geo = await res.json();
-  if (!geo?.features?.length) {
-    throw new Error("Barangay boundaries returned no features. Check: " + DAVAO_BARANGAYS_URL);
+  
+  try {
+    const res = await fetch(DAVAO_BARANGAYS_URL);
+    if (!res.ok) {
+      throw new Error("Failed to load barangay boundaries: " + res.status + " " + res.statusText);
+    }
+    
+    const geo = await res.json();
+    
+    if (!geo?.features?.length) {
+      throw new Error("Barangay boundaries returned no features. Check: " + DAVAO_BARANGAYS_URL);
+    }
+    
+    cachedGeo = geo;
+    return cachedGeo;
+  } catch (err) {
+    console.error("[getDavaoBarangayGeo] Error:", err.message);
+    throw err;
   }
-  cachedGeo = geo;
-  return cachedGeo;
 }
 
 function getBarangayId(feature) {
@@ -74,7 +85,7 @@ export function getBarangayCentroidsWithArea(geo) {
     const areaKm2 = Number(f.properties?.area_km2) || 0;
     if (id == null || !centroid) continue;
     const [lng, lat] = centroid;
-    list.push({ barangayId: id, lat, lng, area_km2 });
+    list.push({ barangayId: id, lat, lng, area_km2: areaKm2 });
   }
   return list;
 }

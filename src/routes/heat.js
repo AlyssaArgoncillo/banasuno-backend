@@ -88,12 +88,17 @@ function requireHeatContext(req) {
  * Use for barangay-heat-risk and barangay-capture to avoid duplicate work.
  */
 async function getBarangayHeatData(apiKey, limit) {
-  const geo = await getDavaoBarangayGeo();
-  const tempsData = await fetchBarangayTempsWeatherAPI(apiKey, limit, geo);
-  const assessment = assessBarangayHeatRisk(tempsData.temperatures, {
-    humidityByBarangay: tempsData.humidityByBarangay,
-  });
-  return { geo, tempsData, assessment };
+  try {
+    const geo = await getDavaoBarangayGeo();
+    const tempsData = await fetchBarangayTempsWeatherAPI(apiKey, limit, geo);
+    const assessment = assessBarangayHeatRisk(tempsData.temperatures, {
+      humidityByBarangay: tempsData.humidityByBarangay,
+    });
+    return { geo, tempsData, assessment };
+  } catch (err) {
+    console.error("[getBarangayHeatData] Error:", err.message);
+    throw err;
+  }
 }
 
 async function runWithConcurrency(items, fn) {
@@ -333,7 +338,11 @@ router.get("/heat/:cityId/barangays", async (req, res) => {
     });
   } catch (err) {
     console.error("Barangays API error:", err);
-    return res.status(500).json({ error: "Failed to fetch barangay heat data" });
+    return res.status(500).json({ 
+      error: "Failed to fetch barangay heat data",
+      details: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
   }
 });
 
@@ -439,112 +448,125 @@ router.get("/heat/:cityId/forecast", async (req, res) => {
  * @param {object|null} [geo] - Optional pre-fetched GeoJSON; when provided, avoids a second getDavaoBarangayGeo() in the same request.
  */
 async function fetchBarangayTempsWeatherAPI(apiKey, limit = null, geo = null) {
-  const geoData = geo != null ? geo : await getDavaoBarangayGeo();
-  const listAll = getBarangayCentroids(geoData);
-  const effectiveLimit =
-    limit != null && Number.isFinite(limit) ? Math.max(0, Math.min(500, limit)) : null;
-  const list = effectiveLimit == null ? listAll : listAll.slice(0, effectiveLimit);
+  try {
+    const geoData = geo != null ? geo : await getDavaoBarangayGeo();
+    const listAll = getBarangayCentroids(geoData);
+    const effectiveLimit =
+      limit != null && Number.isFinite(limit) ? Math.max(0, Math.min(500, limit)) : null;
+    const list = effectiveLimit == null ? listAll : listAll.slice(0, effectiveLimit);
 
-  const now = Date.now();
-  for (const [key, entry] of weatherCache.entries()) {
-    if (key !== CACHE_KEY_AVG && now - entry.ts > CACHE_TTL_MS) weatherCache.delete(key);
-  }
-
-  const items = [];
-  const keyToBarangayIds = new Map();
-  if (PER_BARANGAY) {
-    for (const { barangayId, lat, lng } of list) {
-      const key = `b:${barangayId}`;
-      items.push({ key, lat, lng });
-      keyToBarangayIds.set(key, [barangayId]);
+    const now = Date.now();
+    for (const [key, entry] of weatherCache.entries()) {
+      if (key !== CACHE_KEY_AVG && now - entry.ts > CACHE_TTL_MS) weatherCache.delete(key);
     }
-  } else {
-    for (const { barangayId, lat, lng } of list) {
-      const key = cacheKey(lat, lng);
-      if (!keyToBarangayIds.has(key)) {
-        keyToBarangayIds.set(key, []);
+
+    const items = [];
+    const keyToBarangayIds = new Map();
+    if (PER_BARANGAY) {
+      for (const { barangayId, lat, lng } of list) {
+        const key = `b:${barangayId}`;
         items.push({ key, lat, lng });
+        keyToBarangayIds.set(key, [barangayId]);
       }
-      keyToBarangayIds.get(key).push(barangayId);
-    }
-  }
-
-  const weatherByKey = await runWithConcurrency(items, async (item) => {
-    const cached = weatherCache.get(item.key);
-    if (cached && now - cached.ts < CACHE_TTL_MS) {
-      return { temp_c: cached.temp_c, humidity: cached.humidity };
-    }
-    const q = `${item.lat},${item.lng}`;
-    const weather = await getWeatherWeatherAPI(apiKey, q);
-    const temp_c =
-      weather && typeof weather.temp_c === "number"
-        ? Math.round(weather.temp_c * 10) / 10
-        : null;
-    const humidity =
-      weather && typeof weather.humidity === "number" && weather.humidity >= 0 && weather.humidity <= 100
-        ? weather.humidity
-        : undefined;
-    if (temp_c != null) {
-      weatherCache.set(item.key, { temp_c, humidity, ts: now });
-    }
-    return temp_c != null ? { temp_c, humidity } : null;
-  });
-
-  const temperatures = {};
-  const humidityByBarangay = {};
-  for (const [key, ids] of keyToBarangayIds) {
-    const w = weatherByKey.get(key);
-    if (w != null && typeof w.temp_c === "number") {
-      for (const id of ids) {
-        temperatures[String(id)] = w.temp_c;
-        if (typeof w.humidity === "number") humidityByBarangay[String(id)] = w.humidity;
+    } else {
+      for (const { barangayId, lat, lng } of list) {
+        const key = cacheKey(lat, lng);
+        if (!keyToBarangayIds.has(key)) {
+          keyToBarangayIds.set(key, []);
+          items.push({ key, lat, lng });
+        }
+        keyToBarangayIds.get(key).push(barangayId);
       }
     }
-  }
 
-  const barIds = Object.keys(temperatures);
-  const valuesPreUhi = barIds.map((id) => temperatures[id]);
-  const allSame =
-    valuesPreUhi.length > 1 &&
-    valuesPreUhi.every((v) => v === valuesPreUhi[0]);
+    const weatherByKey = await runWithConcurrency(items, async (item) => {
+      const cached = weatherCache.get(item.key);
+      if (cached && now - cached.ts < CACHE_TTL_MS) {
+        return { temp_c: cached.temp_c, humidity: cached.humidity };
+      }
+      const q = `${item.lat},${item.lng}`;
+      try {
+        const weather = await getWeatherWeatherAPI(apiKey, q);
+        const temp_c =
+          weather && typeof weather.temp_c === "number"
+            ? Math.round(weather.temp_c * 10) / 10
+            : null;
+        const humidity =
+          weather && typeof weather.humidity === "number" && weather.humidity >= 0 && weather.humidity <= 100
+            ? weather.humidity
+            : undefined;
+        if (temp_c != null) {
+          weatherCache.set(item.key, { temp_c, humidity, ts: now });
+        }
+        return temp_c != null ? { temp_c, humidity } : null;
+      } catch (err) {
+        console.error(`[fetchBarangayTempsWeatherAPI] Error fetching weather for ${q}:`, err.message);
+        return null;
+      }
+    });
 
-  if (barIds.length > 0) {
-    let densityByBarangay = {};
-    try {
-      densityByBarangay = await getPopulationDensityByBarangayId();
-    } catch (_) {}
-    const byDensity = [...barIds].sort(
-      (a, b) => (densityByBarangay[a]?.density ?? 0) - (densityByBarangay[b]?.density ?? 0)
-    );
-    const n = byDensity.length;
-    const spreadCap =
-      UHI_MAX_C > 0 ? UHI_MAX_C : allSame ? 1 : 0;
-    if (spreadCap > 0 && n > 0) {
-      for (let i = 0; i < n; i++) {
-        const id = byDensity[i];
-        const pct = n <= 1 ? 0 : (i / Math.max(1, n - 1)) * 100;
-        const delta = (pct / 100) * spreadCap;
-        const t = temperatures[id];
-        if (typeof t === "number") {
-          temperatures[id] = Math.round((t + delta) * 10) / 10;
+    const temperatures = {};
+    const humidityByBarangay = {};
+    for (const [key, ids] of keyToBarangayIds) {
+      const w = weatherByKey.get(key);
+      if (w != null && typeof w.temp_c === "number") {
+        for (const id of ids) {
+          temperatures[String(id)] = w.temp_c;
+          if (typeof w.humidity === "number") humidityByBarangay[String(id)] = w.humidity;
         }
       }
     }
-  }
 
-  const values = Object.values(temperatures);
-  const min = values.length ? Math.min(...values) : undefined;
-  const max = values.length ? Math.max(...values) : undefined;
-  return {
-    temperatures,
-    min,
-    max,
-    humidityByBarangay: Object.keys(humidityByBarangay).length ? humidityByBarangay : undefined,
-    uniqueLocations: items.length,
-    perBarangay: PER_BARANGAY,
-    uhiMaxC: UHI_MAX_C,
-    autoSpreadApplied: allSame && UHI_MAX_C === 0 && barIds.length > 1,
-  };
+    const barIds = Object.keys(temperatures);
+    const valuesPreUhi = barIds.map((id) => temperatures[id]);
+    const allSame =
+      valuesPreUhi.length > 1 &&
+      valuesPreUhi.every((v) => v === valuesPreUhi[0]);
+
+    if (barIds.length > 0) {
+      let densityByBarangay = {};
+      try {
+        densityByBarangay = await getPopulationDensityByBarangayId();
+      } catch (err) {
+        console.warn("[fetchBarangayTempsWeatherAPI] Failed to load density:", err.message);
+      }
+      const byDensity = [...barIds].sort(
+        (a, b) => (densityByBarangay[a]?.density ?? 0) - (densityByBarangay[b]?.density ?? 0)
+      );
+      const n = byDensity.length;
+      const spreadCap =
+        UHI_MAX_C > 0 ? UHI_MAX_C : allSame ? 1 : 0;
+      if (spreadCap > 0 && n > 0) {
+        for (let i = 0; i < n; i++) {
+          const id = byDensity[i];
+          const pct = n <= 1 ? 0 : (i / Math.max(1, n - 1)) * 100;
+          const delta = (pct / 100) * spreadCap;
+          const t = temperatures[id];
+          if (typeof t === "number") {
+            temperatures[id] = Math.round((t + delta) * 10) / 10;
+          }
+        }
+      }
+    }
+
+    const values = Object.values(temperatures);
+    const min = values.length ? Math.min(...values) : undefined;
+    const max = values.length ? Math.max(...values) : undefined;
+    
+    return {
+      temperatures,
+      min,
+      max,
+      humidityByBarangay: Object.keys(humidityByBarangay).length ? humidityByBarangay : undefined,
+      uniqueLocations: items.length,
+      perBarangay: PER_BARANGAY,
+      uhiMaxC: UHI_MAX_C,
+      autoSpreadApplied: allSame && UHI_MAX_C === 0 && barIds.length > 1,
+    };
+  } catch (err) {
+    console.error("[fetchBarangayTempsWeatherAPI] Error:", err.message);
+    throw err;
+  }
 }
 
 export default router;
