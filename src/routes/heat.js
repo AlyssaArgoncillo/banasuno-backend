@@ -1,6 +1,6 @@
 /**
  * Heat / barangay temperatures API.
- * WeatherAPI (WEATHER_API_KEY) only: per-barangay temp by lat,lon (centroid); used for heat risk computation.
+ * Per-barangay temp by lat,lon (centroid) from WeatherAPI or Open-Meteo; used for heat risk computation.
  */
 
 import express from "express";
@@ -8,6 +8,7 @@ import { Router } from "express";
 import {
   getCurrentWeather as getWeatherWeatherAPI,
   getForecast as getWeatherForecast,
+  getOpenMeteoCurrent as getWeatherOpenMeteo,
 } from "../services/weatherService.js";
 import { getDavaoBarangayGeo, getBarangayCentroids, getBarangayCentroidsWithArea } from "../lib/barangays.js";
 import { getPopulationDensityByBarangayId } from "../lib/populationByBarangay.js";
@@ -31,6 +32,9 @@ const CACHE_KEY_FORECAST_14 = "davao_forecast_14";
 /** Parallel WeatherAPI requests for per-barangay fetch. */
 const CONCURRENCY = Math.max(1, Math.min(20, parseInt(process.env.WEATHER_API_CONCURRENCY, 10) || 5));
 
+const BARANGAY_TEMP_PROVIDER = normalizeBarangayProvider(process.env.HEAT_BARANGAY_WEATHER_PROVIDER);
+const OPEN_METEO_TIMEZONE = process.env.HEAT_OPEN_METEO_TIMEZONE || "Asia/Singapore";
+
 const router = Router();
 
 /** Cache: "lat,lng" (2 decimals) -> { temp_c, ts }; CACHE_KEY_AVG -> { temp_c, ts } */
@@ -47,6 +51,17 @@ function cacheKey(lat, lng) {
   return `${Number(lat).toFixed(3)},${Number(lng).toFixed(3)}`;
 }
 
+function normalizeBarangayProvider(raw) {
+  const value = String(raw || "").trim().toLowerCase();
+  if (!value) return "openmeteo";
+  if (value === "open-meteo" || value === "openmeteo" || value === "open_meteo") return "openmeteo";
+  return "weatherapi";
+}
+
+function temperaturesSourceLabel(provider) {
+  return provider === "openmeteo" ? "open-meteo" : "weatherapi";
+}
+
 /** When true, one WeatherAPI request per barangay (exact centroid); closer estimate, more API calls. */
 const PER_BARANGAY = process.env.HEAT_PER_BARANGAY === "1" || process.env.HEAT_PER_BARANGAY === "true";
 
@@ -61,7 +76,7 @@ function parseHeatLimit(raw) {
 }
 
 /**
- * Shared context for heat endpoints that need WeatherAPI: cityId, limit, apiKey.
+ * Shared context for heat endpoints that need temps: cityId, limit, provider, apiKey.
  * Returns { ok: false, status, json } for 404/503; { ok: true, cityId, limit, apiKey } otherwise.
  */
 function requireHeatContext(req) {
@@ -69,28 +84,29 @@ function requireHeatContext(req) {
   if (cityId !== "davao") {
     return { ok: false, status: 404, json: { error: "City not supported", cityId } };
   }
+  const provider = BARANGAY_TEMP_PROVIDER;
   const apiKey = process.env.WEATHER_API_KEY;
-  if (!apiKey) {
+  if (provider === "weatherapi" && !apiKey) {
     return {
       ok: false,
       status: 503,
       json: {
         error: "WeatherAPI required for this endpoint",
-        hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/)",
+        hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/) or set HEAT_BARANGAY_WEATHER_PROVIDER=open-meteo",
       },
     };
   }
-  return { ok: true, cityId, limit: parseHeatLimit(req.query.limit), apiKey };
+  return { ok: true, cityId, limit: parseHeatLimit(req.query.limit), apiKey, provider };
 }
 
 /**
  * Single fetch for endpoints that need temps + risk: one geo fetch, one temp fetch, one assessment.
  * Use for barangay-heat-risk and barangay-capture to avoid duplicate work.
  */
-async function getBarangayHeatData(apiKey, limit) {
+async function getBarangayHeatData(apiKey, limit, provider) {
   try {
     const geo = await getDavaoBarangayGeo();
-    const tempsData = await fetchBarangayTempsWeatherAPI(apiKey, limit, geo);
+    const tempsData = await fetchBarangayTemps(provider, apiKey, limit, geo);
     const assessment = assessBarangayHeatRisk(tempsData.temperatures, {
       humidityByBarangay: tempsData.humidityByBarangay,
     });
@@ -186,7 +202,7 @@ router.get("/heat/:cityId/pipeline-report", async (req, res) => {
 /**
  * POST /api/heat/:cityId/pipeline-report/generate
  * Generate the pipeline heat-risk report on demand (same logic as AI pipeline: heat + facilities + density, K-Means, PAGASA levels).
- * Frontend can call this to trigger generation, then GET pipeline-report to download. May take 1–2 min (WeatherAPI per-barangay temps).
+ * Frontend can call this to trigger generation, then GET pipeline-report to download. May take 1–2 min (per-barangay temps).
  */
 router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
   const cityId = (req.params.cityId || "").toLowerCase();
@@ -194,17 +210,18 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
     return res.status(404).json({ error: "City not supported", cityId });
   }
 
+  const provider = BARANGAY_TEMP_PROVIDER;
   const weatherApiKey = process.env.WEATHER_API_KEY;
-  if (!weatherApiKey) {
+  if (provider === "weatherapi" && !weatherApiKey) {
     return res.status(503).json({
       error: "Pipeline generate requires WeatherAPI",
-      hint: "Set WEATHER_API_KEY in .env (https://www.weatherapi.com/my/)",
+      hint: "Set WEATHER_API_KEY in .env (https://www.weatherapi.com/my/) or set HEAT_BARANGAY_WEATHER_PROVIDER=open-meteo",
     });
   }
 
   try {
     const geo = await getDavaoBarangayGeo();
-    const tempsData = await fetchBarangayTempsWeatherAPI(weatherApiKey, null, geo);
+    const tempsData = await fetchBarangayTemps(provider, weatherApiKey, null, geo);
     const temperatures = tempsData.temperatures || {};
     if (Object.keys(temperatures).length === 0) {
       return res.status(502).json({ error: "No temperature data returned; cannot generate report." });
@@ -300,7 +317,7 @@ router.get("/heat/:cityId/barangays", async (req, res) => {
   if (!ctx.ok) return res.status(ctx.status).json(ctx.json);
 
   try {
-    const { geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, ctx.limit);
+    const { geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, ctx.limit, ctx.provider);
     const withArea = getBarangayCentroidsWithArea(geo);
     const byId = new Map(withArea.map((b) => [b.barangayId, b]));
 
@@ -331,7 +348,7 @@ router.get("/heat/:cityId/barangays", async (req, res) => {
         cityId: ctx.cityId,
         count: barangays.length,
         usedHeatIndex: assessment.usedHeatIndex,
-        temperaturesSource: "weatherapi",
+        temperaturesSource: temperaturesSourceLabel(ctx.provider),
         legend: assessment.legend,
         basis: assessment.basis,
       },
@@ -439,6 +456,139 @@ router.get("/heat/:cityId/forecast", async (req, res) => {
   }
 });
 
+async function finalizeBarangayTemps(temperatures, humidityByBarangay, uniqueLocations, perBarangay) {
+  const barIds = Object.keys(temperatures);
+  const valuesPreUhi = barIds.map((id) => temperatures[id]);
+  const allSame = valuesPreUhi.length > 1 && valuesPreUhi.every((v) => v === valuesPreUhi[0]);
+
+  if (barIds.length > 0) {
+    let densityByBarangay = {};
+    try {
+      densityByBarangay = await getPopulationDensityByBarangayId();
+    } catch (err) {
+      console.warn("[finalizeBarangayTemps] Failed to load density:", err.message);
+    }
+    const byDensity = [...barIds].sort(
+      (a, b) => (densityByBarangay[a]?.density ?? 0) - (densityByBarangay[b]?.density ?? 0)
+    );
+    const n = byDensity.length;
+    const spreadCap = UHI_MAX_C > 0 ? UHI_MAX_C : allSame ? 1 : 0;
+    if (spreadCap > 0 && n > 0) {
+      for (let i = 0; i < n; i++) {
+        const id = byDensity[i];
+        const pct = n <= 1 ? 0 : (i / Math.max(1, n - 1)) * 100;
+        const delta = (pct / 100) * spreadCap;
+        const t = temperatures[id];
+        if (typeof t === "number") {
+          temperatures[id] = Math.round((t + delta) * 10) / 10;
+        }
+      }
+    }
+  }
+
+  const values = Object.values(temperatures);
+  const min = values.length ? Math.min(...values) : undefined;
+  const max = values.length ? Math.max(...values) : undefined;
+
+  return {
+    temperatures,
+    min,
+    max,
+    humidityByBarangay: Object.keys(humidityByBarangay).length ? humidityByBarangay : undefined,
+    uniqueLocations,
+    perBarangay,
+    uhiMaxC: UHI_MAX_C,
+    autoSpreadApplied: allSame && UHI_MAX_C === 0 && barIds.length > 1,
+  };
+}
+
+async function fetchBarangayTemps(provider, apiKey, limit = null, geo = null) {
+  if (provider === "openmeteo") {
+    return fetchBarangayTempsOpenMeteo(limit, geo);
+  }
+  return fetchBarangayTempsWeatherAPI(apiKey, limit, geo);
+}
+
+/**
+ * Open-Meteo per-barangay: fetch by lat,lon for each centroid. Used for heat risk.
+ * Open-Meteo supports current temperature by lat/lon. Cached by location (10 min).
+ * @param {number|null} limit - Cap barangays; null = all.
+ * @param {object|null} [geo] - Optional pre-fetched GeoJSON; when provided, avoids a second getDavaoBarangayGeo() in the same request.
+ */
+async function fetchBarangayTempsOpenMeteo(limit = null, geo = null) {
+  try {
+    const geoData = geo != null ? geo : await getDavaoBarangayGeo();
+    const listAll = getBarangayCentroids(geoData);
+    const effectiveLimit =
+      limit != null && Number.isFinite(limit) ? Math.max(0, Math.min(500, limit)) : null;
+    const list = effectiveLimit == null ? listAll : listAll.slice(0, effectiveLimit);
+
+    const now = Date.now();
+    for (const [key, entry] of weatherCache.entries()) {
+      if (key !== CACHE_KEY_AVG && now - entry.ts > CACHE_TTL_MS) weatherCache.delete(key);
+    }
+
+    const items = [];
+    const keyToBarangayIds = new Map();
+    if (PER_BARANGAY) {
+      for (const { barangayId, lat, lng } of list) {
+        const key = `om:b:${barangayId}`;
+        items.push({ key, lat, lng });
+        keyToBarangayIds.set(key, [barangayId]);
+      }
+    } else {
+      for (const { barangayId, lat, lng } of list) {
+        const key = `om:${cacheKey(lat, lng)}`;
+        if (!keyToBarangayIds.has(key)) {
+          keyToBarangayIds.set(key, []);
+          items.push({ key, lat, lng });
+        }
+        keyToBarangayIds.get(key).push(barangayId);
+      }
+    }
+
+    const weatherByKey = await runWithConcurrency(items, async (item) => {
+      const cached = weatherCache.get(item.key);
+      if (cached && now - cached.ts < CACHE_TTL_MS) {
+        return { temp_c: cached.temp_c, humidity: cached.humidity };
+      }
+      try {
+        const weather = await getWeatherOpenMeteo(item.lat, item.lng, OPEN_METEO_TIMEZONE);
+        const temp_c =
+          weather && typeof weather.temp_c === "number" ? Math.round(weather.temp_c * 10) / 10 : null;
+        const humidity =
+          weather && typeof weather.humidity === "number" && weather.humidity >= 0 && weather.humidity <= 100
+            ? weather.humidity
+            : undefined;
+        if (temp_c != null) {
+          weatherCache.set(item.key, { temp_c, humidity, ts: now });
+        }
+        return temp_c != null ? { temp_c, humidity } : null;
+      } catch (err) {
+        console.error(`[fetchBarangayTempsOpenMeteo] Error fetching weather for ${item.lat},${item.lng}:`, err.message);
+        return null;
+      }
+    });
+
+    const temperatures = {};
+    const humidityByBarangay = {};
+    for (const [key, ids] of keyToBarangayIds) {
+      const w = weatherByKey.get(key);
+      if (w != null && typeof w.temp_c === "number") {
+        for (const id of ids) {
+          temperatures[String(id)] = w.temp_c;
+          if (typeof w.humidity === "number") humidityByBarangay[String(id)] = w.humidity;
+        }
+      }
+    }
+
+    return await finalizeBarangayTemps(temperatures, humidityByBarangay, items.length, PER_BARANGAY);
+  } catch (err) {
+    console.error("[fetchBarangayTempsOpenMeteo] Error:", err.message);
+    throw err;
+  }
+}
+
 /**
  * WeatherAPI per-barangay: fetch by lat,lon for each centroid. Used for heat risk.
  * Uses air temperature (temp_c) for validated path: with humidity → NOAA Rothfusz heat index → PAGASA.
@@ -464,13 +614,13 @@ async function fetchBarangayTempsWeatherAPI(apiKey, limit = null, geo = null) {
     const keyToBarangayIds = new Map();
     if (PER_BARANGAY) {
       for (const { barangayId, lat, lng } of list) {
-        const key = `b:${barangayId}`;
+        const key = `wa:b:${barangayId}`;
         items.push({ key, lat, lng });
         keyToBarangayIds.set(key, [barangayId]);
       }
     } else {
       for (const { barangayId, lat, lng } of list) {
-        const key = cacheKey(lat, lng);
+        const key = `wa:${cacheKey(lat, lng)}`;
         if (!keyToBarangayIds.has(key)) {
           keyToBarangayIds.set(key, []);
           items.push({ key, lat, lng });
@@ -517,52 +667,7 @@ async function fetchBarangayTempsWeatherAPI(apiKey, limit = null, geo = null) {
       }
     }
 
-    const barIds = Object.keys(temperatures);
-    const valuesPreUhi = barIds.map((id) => temperatures[id]);
-    const allSame =
-      valuesPreUhi.length > 1 &&
-      valuesPreUhi.every((v) => v === valuesPreUhi[0]);
-
-    if (barIds.length > 0) {
-      let densityByBarangay = {};
-      try {
-        densityByBarangay = await getPopulationDensityByBarangayId();
-      } catch (err) {
-        console.warn("[fetchBarangayTempsWeatherAPI] Failed to load density:", err.message);
-      }
-      const byDensity = [...barIds].sort(
-        (a, b) => (densityByBarangay[a]?.density ?? 0) - (densityByBarangay[b]?.density ?? 0)
-      );
-      const n = byDensity.length;
-      const spreadCap =
-        UHI_MAX_C > 0 ? UHI_MAX_C : allSame ? 1 : 0;
-      if (spreadCap > 0 && n > 0) {
-        for (let i = 0; i < n; i++) {
-          const id = byDensity[i];
-          const pct = n <= 1 ? 0 : (i / Math.max(1, n - 1)) * 100;
-          const delta = (pct / 100) * spreadCap;
-          const t = temperatures[id];
-          if (typeof t === "number") {
-            temperatures[id] = Math.round((t + delta) * 10) / 10;
-          }
-        }
-      }
-    }
-
-    const values = Object.values(temperatures);
-    const min = values.length ? Math.min(...values) : undefined;
-    const max = values.length ? Math.max(...values) : undefined;
-    
-    return {
-      temperatures,
-      min,
-      max,
-      humidityByBarangay: Object.keys(humidityByBarangay).length ? humidityByBarangay : undefined,
-      uniqueLocations: items.length,
-      perBarangay: PER_BARANGAY,
-      uhiMaxC: UHI_MAX_C,
-      autoSpreadApplied: allSame && UHI_MAX_C === 0 && barIds.length > 1,
-    };
+    return await finalizeBarangayTemps(temperatures, humidityByBarangay, items.length, PER_BARANGAY);
   } catch (err) {
     console.error("[fetchBarangayTempsWeatherAPI] Error:", err.message);
     throw err;

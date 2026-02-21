@@ -5,6 +5,7 @@
  */
 
 const WEATHER_API_BASE = "https://api.weatherapi.com/v1";
+const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 
 /**
  * Fetch current weather for a location.
@@ -56,6 +57,41 @@ export async function getCurrentWeather(apiKey, q) {
           localtime: location.localtime,
         }
       : undefined,
+  };
+}
+
+/**
+ * Fetch current temperature (and optional humidity) from Open-Meteo.
+ * @param {number} lat
+ * @param {number} lon
+ * @param {string} timezone
+ * @returns {Promise<{ temp_c: number, humidity?: number } | null>}
+ */
+export async function getOpenMeteoCurrent(lat, lon, timezone = "Asia/Singapore") {
+  if (!Number.isFinite(lat) || !Number.isFinite(lon)) return null;
+  const params = new URLSearchParams({
+    latitude: String(lat),
+    longitude: String(lon),
+    current: "temperature_2m,relative_humidity_2m",
+    timezone,
+    forecast_days: "1",
+  });
+  const url = `${OPEN_METEO_BASE}?${params.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const current = data?.current;
+  const temp = typeof current?.temperature_2m === "number" ? current.temperature_2m : null;
+  if (temp == null) return null;
+  const humidity =
+    typeof current?.relative_humidity_2m === "number" &&
+    current.relative_humidity_2m >= 0 &&
+    current.relative_humidity_2m <= 100
+      ? current.relative_humidity_2m
+      : undefined;
+  return {
+    temp_c: temp,
+    humidity,
   };
 }
 
