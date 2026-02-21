@@ -3,7 +3,7 @@
  * Full text: docs/DISCLAIMERS.md and docs/CITED-SOURCES.md.
  */
 
-/** Barangay temperatures (heat map data) – for GET /api/heat/:cityId/barangay-temperatures */
+/** Barangay heat (heat map data) – for GET /api/heat/:cityId/barangays */
 export const TEMPERATURES_DISCLAIMER = "Temperatures from WeatherAPI (per-barangay by lat,lon). For planning and awareness only; not official PAGASA or NWS observations.";
 export const TEMPERATURES_SOURCES = ["WeatherAPI (https://www.weatherapi.com) per-barangay by lat,lon."];
 export const TEMPERATURES_VALIDITY = "Model/API outputs; not a substitute for official heat advisories or local weather stations. See docs/DISCLAIMERS.md.";
@@ -13,7 +13,7 @@ export const FORECAST_DISCLAIMER = "Forecast from WeatherAPI. For general planni
 export const FORECAST_SOURCES = ["WeatherAPI (https://www.weatherapi.com)."];
 export const FORECAST_VALIDITY = "Third-party provider; not for critical or regulatory decisions. See docs/DISCLAIMERS.md.";
 
-/** Barangay heat risk (map) – for GET /api/heat/:cityId/barangay-heat-risk */
+/** Barangay heat risk (map) – for GET /api/heat/:cityId/barangays */
 export const HEAT_RISK_DISCLAIMER = "Risk levels use PAGASA bands and, when humidity is available, NOAA heat index. For planning and awareness only; not official PAGASA advisories.";
 
 export const HEAT_RISK_SOURCES = [

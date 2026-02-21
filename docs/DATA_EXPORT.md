@@ -126,7 +126,7 @@ Enable RLS and add policies as needed (e.g. allow anonymous read for public dash
 
 ## 4. Backend flow
 
-1. **Heat API** (`GET /api/heat/:cityId/barangay-temperatures`): when returning temperatures, the backend can also write one row to `heat_snapshots` and one row per barangay to `heat_snapshot_barangays` (using PAGASA level from temp: &lt;27 → 1, 27–32 → 2, etc.).
+1. **Heat API** (`GET /api/heat/:cityId/barangays`): when returning barangay data, the backend can also write one row to `heat_snapshots` and one row per barangay to `heat_snapshot_barangays` (using PAGASA level from temp: &lt;27 → 1, 27–32 → 2, etc.).
 2. **Writing snapshots via Edge Function (optional):** To persist snapshots to Supabase, call the **heat-snapshot-writer** Edge Function (POST with `summary` + `barangays` aligned with §3.1 and §3.2). The backend does not currently include a built-in client; add a route or script that POSTs to `HEAT_SNAPSHOT_WRITER_URL` with header `x-heat-writer-key: HEAT_WRITER_KEY` when you need this. Keep the key server-side only; do not commit it.
 3. **Export endpoints** (to implement):
    - `GET /api/heat/:cityId/export/barangays.csv` – latest snapshot by barangay (CSV as in §2.1).

@@ -15,7 +15,11 @@ This guide explains how to use the BanasUno backend: heat data, heat-risk assess
 **Data flow for heat map:**
 
 1. **WeatherAPI** → one request per barangay centroid (lat,lon) → `temperatures[barangayId]` = temp °C.
-2. **Heat risk model** → `assessBarangayHeatRisk(temperatures, { averageTemp })` → `risks[barangayId]` = { level 1–5, label (PAGASA), score, temp_c, delta_c }. Response includes `legend` (with `range` per level) and `basis` (PAGASA URL).
+2. **Heat risk model** → `assessBarangayHeatRisk(temperatures, { humidityByBarangay })` → `risks[barangayId]` = { level 1–5, label (PAGASA), score, temp_c, optional heat_index_c }. Response includes `legend`, `basis`, `averageTemp`. No delta, population, or density.
+
+---
+
+**Backend computation flow (step-by-step):** **docs/LOGIC-FLOWS.md** §1. **Validity and verification:** **docs/VALIDITY.md**. **Cited sources:** **docs/CITED-SOURCES.md**.
 
 ---
 
@@ -46,93 +50,38 @@ Server runs at `http://localhost:3000` (or `PORT` from `.env`).
 
 ## 3. Endpoints
 
-### 3.1 Barangay temperatures only
+### 3.1 Barangays (temp + risk + lat/lng + area)
 
 ```http
-GET /api/heat/:cityId/barangay-temperatures
-```
-
-- **Supported `cityId`:** `davao` (lowercase).
-- **Query:** optional `?limit=N` to cap how many barangays are fetched.
-- **Response:** `{ temperatures, min, max, meta }`. `meta` includes `uniqueLocations`, `perBarangay`, `uhiMaxC`, `autoSpreadApplied` (true when a density-based spread was applied because all API temps were identical).
-
-**Example**
-
-```bash
-curl "http://localhost:3000/api/heat/davao/barangay-temperatures"
-```
-
-Use this when you only need temps (e.g. your own risk logic or a simple temp map). Optional env: **HEAT_PER_BARANGAY=1** (one request per barangay); **HEAT_UHI_MAX** (urban heat island °C). When the API returns the same temp for all locations, a small auto spread (0–1°C by density) is applied. **GET /api/heat/:cityId/temp-vs-feelslike** returns `temp_c`, `feelslike_c`, and `difference_c` for the city center (heat risk uses air temp for validated Rothfusz + PAGASA).
-
----
-
-### 3.2 Barangay heat risk (temperatures + PAGASA 5-level heat index)
-
-```http
-GET /api/heat/:cityId/barangay-heat-risk
+GET /api/heat/:cityId/barangays
 ```
 
 - **Supported `cityId`:** `davao`.
 - **Requires:** `WEATHER_API_KEY` in `.env`.
-- **Query:** optional `?limit=N` (e.g. `5` or `20`, max 500) to cap how many barangays are fetched.
+- **Query:** optional `?limit=N` (max 500).
 
-**Response shape**
-
-```json
-{
-  "temperatures": { "1130700001": 24.5, "1130700002": 27.2 },
-  "averageTemp": 26.8,
-  "risks": {
-    "1130700001": {
-      "score": 0.1,
-      "level": 1,
-      "label": "Not Hazardous",
-      "temp_c": 24.5,
-      "delta_c": -2.3
-    },
-    "1130700002": {
-      "score": 0.3,
-      "level": 2,
-      "label": "Moderate",
-      "temp_c": 27.2,
-      "delta_c": 0.4
-    }
-  },
-  "minRisk": 0.1,
-  "maxRisk": 0.8,
-  "counts": { "not_hazardous": 50, "caution": 80, "extreme_caution": 30, "danger": 15, "extreme_danger": 2 },
-  "updatedAt": "2025-02-18T12:00:00.000Z",
-  "legend": [
-    { "level": 1, "label": "Not Hazardous", "range": "< 27°C", "color": "#48bb78" },
-    { "level": 2, "label": "Caution", "range": "27–32°C", "color": "#ecc94b" },
-    { "level": 3, "label": "Extreme Caution", "range": "33–41°C", "color": "#ed8936" },
-    { "level": 4, "label": "Danger", "range": "42–51°C", "color": "#f97316" },
-    { "level": 5, "label": "Extreme Danger", "range": "≥ 52°C", "color": "#dc2626" }
-  ],
-  "basis": "PAGASA heat index (https://www.pagasa.dost.gov.ph/weather/heat-index)",
-  "meta": {
-    "cityId": "davao",
-    "temperaturesSource": "weatherapi",
-    "averageSource": "weatherapi"
-  }
-}
-```
+**Response:** `{ barangays, updatedAt, meta }`. Each **`barangays[]`** item: `barangay_id`, `temp_c`, `risk` (score, level, label, optional heat_index_c), `lat`, `lng`, `area_km2`. **`meta`** includes `legend`, `basis` (for map disclaimer).
 
 **Example**
 
 ```bash
-# Full run (all barangays; can be slow)
-curl "http://localhost:3000/api/heat/davao/barangay-heat-risk"
-
-# Quick test (first N barangays)
-curl "http://localhost:3000/api/heat/davao/barangay-heat-risk?limit=10"
+curl "http://localhost:3000/api/heat/davao/barangays"
+curl "http://localhost:3000/api/heat/davao/barangays?limit=10"
 ```
 
-Use this for the heat map: color barangays by `risks[id].level` (1–5) and use `legend` for the bottom legend (PAGASA: Not Hazardous, Caution, Extreme Caution, Danger, Extreme Danger). Each legend entry includes `range` (e.g. "27–32°C").
+Use for heat map (color by `risk.level`, use `meta.legend`), exports, or pipeline. Env: **HEAT_PER_BARANGAY=1**, **HEAT_UHI_MAX** (see `.env.example`).
+
+**City current**
+
+```http
+GET /api/heat/:cityId/current
+```
+
+One WeatherAPI call for city center. Response: `temp_c`, `feelslike_c`, `difference_c`, `updatedAt`.
 
 ---
 
-### 3.3 7- and 14-day forecast (historical trend)
+### 3.2 7- and 14-day forecast (historical trend)
 
 ```http
 GET /api/heat/:cityId/forecast
@@ -160,7 +109,7 @@ Use this for backend logic that needs a 7- or 14-day temperature trend (e.g. hea
 
 | Piece | File | Role |
 |-------|------|------|
-| Heat routes | `src/routes/heat.js` | Exposes `/barangay-temperatures`, `/barangay-heat-risk`, and `/forecast`; fetches temps via WeatherAPI (per lat,lon), calls risk model, returns JSON. |
+| Heat routes | `src/routes/heat.js` | Exposes `/barangays`, `/current`, `/forecast`; WeatherAPI (per lat,lon), PAGASA risk model. |
 | Barangay temps | `src/routes/heat.js` (fetchBarangayTempsWeatherAPI) | WeatherAPI `getCurrentWeather(apiKey, "lat,lon")` → temp °C per point. |
 | City average (WeatherAPI) | `src/services/weatherService.js` | `getCurrentWeather(apiKey, "Davao City, Philippines")` → one temp for city. |
 | Heat risk model | `src/services/heatRiskModel.js` | `assessBarangayHeatRisk(temperatures, { averageTemp })` → risks + legend. Barangay-level temps (from WeatherAPI) are the input. |
@@ -173,7 +122,7 @@ Use this for backend logic that needs a 7- or 14-day temperature trend (e.g. hea
 3. **Average (optional):** If `WEATHER_API_KEY` is set, fetch city temp once → `averageTemp`.
 4. **Risk:** `assessBarangayHeatRisk(tempsData.temperatures, { averageTemp })`:
    - Input: barangay-level temperatures from WeatherAPI.
-   - Uses **PAGASA heat index** bands: &lt;27°C → Not Hazardous, 27–32°C → Caution, 33–41°C → Extreme Caution, 42–51°C → Danger, ≥52°C → Extreme Danger. Optional delta vs `averageTemp` slightly adjusts score.
+   - Uses **PAGASA heat index** bands: &lt;27°C → Not Hazardous, 27–32°C → Caution, 33–41°C → Extreme Caution, 42–51°C → Danger, ≥52°C → Extreme Danger. Score = (level−1)/4 only; no delta or density. Response per barangay: score, level, label, temp_c, optional heat_index_c.
    - Returns `risks`, `counts`, `legend`, `minRisk`, `maxRisk`, etc.
 5. **Response:** Route returns temperatures + assessment + legend + meta.
 
@@ -197,7 +146,7 @@ console.log(result.legend);
 ## 5. Using from a frontend
 
 - **Base URL:** e.g. `http://localhost:3000` (or your deployed API). Backend sends `Access-Control-Allow-Origin: *`.
-- **Heat map data:** `GET /api/heat/davao/barangay-heat-risk` (optionally `?limit=N` for development/testing; omit for full Davao).
+- **Heat map data:** `GET /api/heat/davao/barangays` (optionally `?limit=N` for development; omit for full Davao).
 - **Barangay IDs:** Use the same IDs as your GeoJSON (e.g. `feature.id` or `feature.properties.adm4_psgc`). Backend uses the same Davao GeoJSON from the repo.
 - **Coloring:** Use `response.risks[barangayId].level` (1–5) and `response.legend[level - 1].color`. Build the legend from `response.legend` (each has `label`, `range`, `color`). Response includes `basis` (PAGASA URL).
 - **Optional:** Use `response.temperatures` for tooltips (e.g. show `temp_c` and `label`).
@@ -206,7 +155,7 @@ console.log(result.legend);
 
 ```js
 const base = "http://localhost:3000";
-const res = await fetch(`${base}/api/heat/davao/barangay-heat-risk`);
+const res = await fetch(`${base}/api/heat/davao/barangays`);
 const data = await res.json();
 if (!res.ok) {
   console.error(data.error, data.hint);
@@ -229,8 +178,8 @@ const { risks, legend, temperatures } = data;
 
 | Goal | Endpoint | Env |
 |------|----------|-----|
-| Barangay temps only | `GET /api/heat/davao/barangay-temperatures` | WeatherAPI |
-| Temps + PAGASA heat index (5 levels) for map | `GET /api/heat/davao/barangay-heat-risk` | **WEATHER_API_KEY** required |
+| Barangays (temp + risk + geo) | `GET /api/heat/davao/barangays` | **WEATHER_API_KEY** required |
+| City current | `GET /api/heat/davao/current` | WeatherAPI |
 | 7- or 14-day forecast (trend) | `GET /api/heat/davao/forecast?days=7\|14` | **WEATHER_API_KEY** required |
 | Health facilities | `GET /api/facilities`, etc. | Supabase + seed (see README) |
 | Facilities in a barangay | `GET /api/facilities/by-barangay/:barangayId` | Supabase + seed. Uses nearest barangay (lat/lon only). |

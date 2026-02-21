@@ -7,17 +7,15 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 ## 1. Heat risk model (PAGASA)
 
 **File:** `src/services/heatRiskModel.js`  
-**Model basis and references:** See **docs/HEAT-RISK-MODEL-BASIS.md** (NOAA Rothfusz, PAGASA, Estoque et al. 2020, Reid et al. 2009).
+**Model basis and references:** See **docs/HEAT-RISK-MODEL-BASIS.md** (NOAA Rothfusz, PAGASA). Estoque and Reid are cited for the pipeline and conceptual context only (**docs/CITED-SOURCES.md** §3–4); the backend score uses only validated level.
 
 | What | Where | Formula / logic |
 |------|--------|------------------|
 | **Heat index (validated)** | `src/lib/heatIndex.js` | NOAA Rothfusz (NWS SR 90-23): T °C + RH % → HI °C. Used when `opts.humidityByBarangay` provided; then HI is input to PAGASA. |
 | **Round to 1 decimal** | `round1(x)` | `Math.round(x * 10) / 10`. |
 | **PAGASA level** | `tempToPAGASALevel(tempC)` | Input is HI °C (when humidity used) or air temp °C. Bands: &lt;27 → 1; 27–32 → 2; 33–41 → 3; 42–51 → 4; ≥52 → 5. |
-| **Risk score (validated)** | `scoreFromLevel(level)` | `score = (level − 1) / 4` so level 1→0, 2→0.25, 3→0.5, 4→0.75, 5→1. No delta or density in score. |
-| **City average** | `assessBarangayHeatRisk` | `computedAvg = sum(temps) / count` when `opts.averageTemp` not set; used only for `delta_c` (informational). |
-| **Delta vs average** | per barangay | `delta_c = temp - avg` (reported only; not used in score). |
-| **Population/density** | `src/lib/populationByBarangay.js` | Match GeoJSON `adm4_en` to PSA 2020; `density = population / area_km2`. Reported in risk object when available; not used in score. |
+| **Risk score (validated)** | `scoreFromLevel(level)` | `score = (level − 1) / 4` so level 1→0, 2→0.25, 3→0.5, 4→0.75, 5→1. |
+| **City average** | `assessBarangayHeatRisk` | `computedAvg = sum(temps) / count`; returned as `averageTemp` at response level only. |
 | **Counts by level** | `counts` | Increment `not_hazardous`, `caution`, `extreme_caution`, `danger`, `extreme_danger` from PAGASA label. |
 | **Min/max score** | aggregation | `minScore` / `maxScore` over all barangay scores. |
 
@@ -60,11 +58,11 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 | What | Where | Formula / logic |
 |------|--------|------------------|
 | **Cache TTL** | constant | `CACHE_TTL_MS = 10 * 60 * 1000` (10 min). |
-| **Query limit** | `barangay-heat-risk` | `limit = clamp(parseInt(limitRaw), 0, 500)`; invalid/empty → no limit. |
+| **Query limit** | `barangays` | `limit = clamp(parseInt(limitRaw), 0, 500)`; invalid/empty → no limit. |
 | **Concurrency** | `runWithConcurrency` | Worker count = `Math.min(CONCURRENCY, items.length)` (CONCURRENCY = 5). |
 | **Temp rounding** | when storing/caching | `Math.round(temp_c * 10) / 10` (1 decimal). |
 | **Min/max over barangays** | `fetchAverageTemps`, `fetchBarangaySpecificTemps` | `min = Math.min(...values)`, `max = Math.max(...values)` over temp values. |
-| **Average temp** | when WeatherAPI used | From single city call or from `fetchAverageTempOnly`; same value applied to all barangays in WeatherAPI-only path. |
+| **Barangay temps** | `barangays` | From WeatherAPI per centroid; one fetch per location (or per barangay when HEAT_PER_BARANGAY=1). |
 
 ---
 
@@ -101,7 +99,7 @@ Facilities and pipeline report are stored in Postgres via Supabase (tables `heal
 
 ## Summary by category
 
-- **Risk/scoring:** PAGASA level from temp bands; normalized score; delta adjustment; min/max score and level counts (`heatRiskModel.js`).
+- **Risk/scoring:** PAGASA level from temp bands; normalized score = (level−1)/4; min/max score and level counts (`heatRiskModel.js`). No delta or density in score or response.
 - **Geometry:** Centroid (mean of ring vertices); point-in-polygon (ray-casting) (`geo.js`).
 - **Assignment:** Squared distance; nearest-barangay; facility–barangay assignment (`facilitiesByBarangay.js`, `barangays.js`).
 - **Aggregation:** Min/max/average of temps; pagination offset/limit; forecast day clamping (`heat.js`, `healthFacilities.js`, `weatherService.js`).

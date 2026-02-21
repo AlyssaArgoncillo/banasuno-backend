@@ -42,12 +42,12 @@ function tempToPAGASALevel(tempC) {
 /**
  * Assess heat risk per barangay using PAGASA heat index categories.
  * Score uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level − 1) / 4.
- * No delta or density in score; delta_c, population, density are reported for information only.
+ * Score uses only validated inputs (heat index or air temp → PAGASA level). No delta or density in score or response.
  *
  * @param {{ [barangayId: string]: number }} temperatures - Barangay-level temps (°C), e.g. from WeatherAPI
- * @param {{ averageTemp?: number, humidityByBarangay?: { [id: string]: number }, populationDensityByBarangay?: { [id: string]: { population: number, density: number } } }} opts - Optional city average (for delta_c only); optional RH % (enables validated NOAA heat index); optional population/density (reported only)
+ * @param {{ humidityByBarangay?: { [id: string]: number } }} opts - Optional RH % (enables validated NOAA heat index)
  * @returns {{
- *   risks: { [barangayId: string]: { score: number, level: number, label: string, temp_c: number, heat_index_c?: number, delta_c: number, population?: number, density?: number } },
+ *   risks: { [barangayId: string]: { score: number, level: number, label: string, temp_c: number, heat_index_c?: number } },
  *   averageTemp: number | undefined,
  *   minScore: number | undefined,
  *   maxScore: number | undefined,
@@ -66,9 +66,7 @@ export function assessBarangayHeatRisk(temperatures, opts = {}) {
   const entries = Object.entries(temperatures || {}).filter(([, v]) => typeof v === "number");
   const computedAvg =
     entries.length ? entries.reduce((sum, [, v]) => sum + v, 0) / entries.length : undefined;
-  const avg = typeof opts.averageTemp === "number" ? opts.averageTemp : computedAvg;
   const humidityByBarangay = opts.humidityByBarangay || {};
-  const popDensity = opts.populationDensityByBarangay || {};
 
   let usedHeatIndex = false;
   const risks = {};
@@ -85,8 +83,6 @@ export function assessBarangayHeatRisk(temperatures, opts = {}) {
 
     const pagasa = tempToPAGASALevel(inputForPAGASA);
     const score = scoreFromLevel(pagasa.level);
-    const delta = typeof avg === "number" ? temp - avg : 0;
-    const pd = popDensity[id];
 
     risks[id] = {
       score: round1(score),
@@ -94,8 +90,6 @@ export function assessBarangayHeatRisk(temperatures, opts = {}) {
       label: pagasa.label,
       temp_c: round1(temp),
       ...(useHi ? { heat_index_c: round1(inputForPAGASA) } : {}),
-      delta_c: round1(delta),
-      ...(pd ? { population: pd.population, density: round1(pd.density) } : {}),
     };
 
     counts[countKey(pagasa.label)] += 1;
@@ -110,7 +104,7 @@ export function assessBarangayHeatRisk(temperatures, opts = {}) {
 
   return {
     risks,
-    averageTemp: typeof avg === "number" ? round1(avg) : undefined,
+    averageTemp: typeof computedAvg === "number" ? round1(computedAvg) : undefined,
     minScore: minScore == null ? undefined : round1(minScore),
     maxScore: maxScore == null ? undefined : round1(maxScore),
     counts,

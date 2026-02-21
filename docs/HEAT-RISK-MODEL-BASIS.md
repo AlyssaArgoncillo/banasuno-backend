@@ -1,8 +1,8 @@
 # Heat risk model – basis and references
 
-This document provides the **official and scientific basis** for the heat-risk model in `src/services/heatRiskModel.js`: temperature-based risk levels, optional density adjustment, and related logic.
+This document provides the **official and scientific basis** for the heat-risk model in `src/services/heatRiskModel.js`: temperature-based risk levels, validated score from PAGASA level only, and related logic.
 
-**User-facing disclaimers (what it does, where it comes from, validity):** See **docs/DISCLAIMERS.md** § 2. The API **GET /api/heat/davao/barangay-heat-risk** returns `disclaimer`, `sources`, and `validity` for in-app display.
+**User-facing disclaimers (what it does, where it comes from, validity):** See **docs/DISCLAIMERS.md** § 2. The API **GET /api/heat/davao/barangays** returns **meta.basis** and **meta.legend** for in-app display.
 
 ---
 
@@ -20,9 +20,9 @@ When the backend has **air temperature** (and optionally humidity) per barangay 
    The **heat index in °C** is mapped to **PAGASA categories** (27–32 Caution, 33–41 Extreme Caution, 42–51 Danger, ≥52 Extreme Danger; we add &lt;27 “Not Hazardous”). PAGASA defines heat index as temperature + humidity, so using Rothfusz HI as input to PAGASA bands is **aligned with PAGASA’s definition**.
 
 3. **Risk score (0–1)**  
-   **Score = (level − 1) / 4**, so level 1→0, 2→0.25, 3→0.5, 4→0.75, 5→1. The score is a deterministic function of the validated PAGASA level only. Delta and density are **not** used in the score; they are reported in the API for information only.
+   **Score = (level − 1) / 4**, so level 1→0, 2→0.25, 3→0.5, 4→0.75, 5→1. The score is a deterministic function of the validated PAGASA level only. The API does not expose delta, population, or density; see **docs/VALIDITY.md** §1.3 for the engineering justification.
 
-**Result:** With humidity available, **heat index**, **level**, and **score** are all derived from validated sources (NOAA, PAGASA). No unvalidated inputs (delta, density) affect the score.
+**Result:** With humidity available, **heat index**, **level**, and **score** are all derived from validated sources (NOAA, PAGASA). The API returns only these validated outputs; no delta, population, or density.
 
 **When humidity is not available:** The model uses **air temperature only** as input to PAGASA bands. That path is not fully aligned with PAGASA’s “heat index” (which includes humidity) but preserves the same category bands. The API returns `usedHeatIndex: true` when the validated (Rothfusz + PAGASA) path was used.
 
@@ -51,7 +51,7 @@ Our implementation maps **heat index °C** (when computed from temperature + hum
 
 ## 2. Heat health risk in Philippine cities (scientific framework)
 
-For the **conceptual framework** of heat hazard + exposure + vulnerability (e.g. why we add density and relative temperature):
+For the **conceptual framework** of heat hazard + exposure + vulnerability (used in the **pipeline**; the backend heat-risk API does not use density or delta):
 
 - **Estoque, R.C., Ooba, M., Seposo, X.T., Togawa, T., Hijioka, Y., Takahashi, K., & Nakamura, S.** (2020). Heat health risk assessment in Philippine cities using remotely sensed data and social-ecological indicators. *Nature Communications*, **11**, 1581.  
   **DOI:** https://doi.org/10.1038/s41467-020-15218-8
@@ -60,21 +60,21 @@ This study assesses heat health risk in **139 Philippine cities** using the **IP
 
 ---
 
-## 3. Population density / urban heat island (density adjustment)
+## 3. Population density / exposure (pipeline only; not in backend API)
 
-The **density adjustment** (higher population density → higher risk score, capped at +0.15) is motivated by:
+The **pipeline** (K-Means in `ai/`) uses population density as a feature. Conceptual support:
 
 - **Urban heat island (UHI)** and **exposure**: Denser areas tend to have higher UHI intensity and more people exposed per unit area.
 - **Reid, C.E., O’Neill, M.S., Gronlund, C.J., Brines, S.J., Brown, D.G., Diez-Roux, A.V., & Schwartz, J.** (2009). Mapping community determinants of heat vulnerability. *Environmental Health Perspectives*, **117**(11), 1730–1736.  
   **DOI:** https://doi.org/10.1289/ehp.0900683
 
-Reid et al. map community-level heat vulnerability using demographic, environmental, and infrastructure factors; inner cities and urban areas show higher vulnerability. Using **population density** as a proxy for exposure and UHI-related risk is consistent with this and with the Estoque et al. exposure dimension.
-
-The constant **DENSITY_MAX_ADJ = 0.15** is a **heuristic cap** so that density does not dominate the PAGASA-derived score; it is not taken from a single paper.
+Reid et al. map community-level heat vulnerability; density as exposure/UHI proxy is consistent with Estoque et al. The **backend heat-risk API** does not use or expose density; it returns only validated outputs (score, level, label, temp_c, heat_index_c). The pipeline uses only temperature and facility score (no density). See **docs/CITED-SOURCES.md** §3–4.
 
 ---
 
 ## 4. What is validated vs heuristic
+
+**Full verification table and primary-source checks:** **docs/VALIDITY.md** §1 (especially §1.4). Summary:
 
 | Component | Validated by | Notes |
 |-----------|--------------|--------|
@@ -82,22 +82,17 @@ The constant **DENSITY_MAX_ADJ = 0.15** is a **heuristic cap** so that density d
 | **Temperature bands & category labels** (27–32 Caution, etc.) | **PAGASA** (official pages) | Bands/labels from PAGASA. "Not Hazardous" &lt; 27°C is our extension. |
 | **Input to PAGASA when RH available** | **Rothfusz HI (°C)** | Aligns with PAGASA’s definition of heat index (temperature + humidity). |
 | **Risk score** | **Derived from level** | `score = (level − 1) / 4`; only validated level is used. |
-| **Delta, population, density** | **Not in score** | Reported in the API for information only; they do not affect the score. |
 
-**Summary:** The **score** uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level−1)/4. Delta and density are no longer used in the score. The API reports `usedHeatIndex: true` when the validated (Rothfusz + PAGASA) path was used.
+**Summary:** The API returns only validated outputs (score, level, label, temp_c, heat_index_c when used). No delta, population, or density. The **score** uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level−1)/4. The API reports `usedHeatIndex: true` when the validated (Rothfusz + PAGASA) path was used.
 
 ---
 
-## 5. Informational fields only (not in score)
+## 5. Independent verification of computational logic
 
-| Component              | Conceptual basis |
-|------------------------|------------------|
-| Temperature bands & labels | PAGASA heat index (official web pages above). We use air temperature and add “Not Hazardous” for &lt; 27°C. |
-| Hazard + exposure idea | Estoque et al. (2020), *Nature Communications* – Philippine cities, IPCC risk framework. |
-| Density as risk factor | Reid et al. (2009), *Environmental Health Perspectives* – community heat vulnerability; density as exposure/UHI proxy. |
-| Delta vs city average  | Heuristic (relative hot spot); no specific paper. |
-| DENSITY_MAX_ADJ = 0.15 | Heuristic cap; can be tuned with domain input. |
+The heat index formula and PAGASA category boundaries have been verified **against the primary sources** (NWS WPC equation page and PAGASA heat index pages), not only against this repo’s documentation. Verification includes:
 
-`delta_c`, `population`, and `density` are reported for context but do not affect the score. For formula details, see **docs/LOGICAL-COMPUTATIONS.md** (Heat risk model section).
+- **Rothfusz equation:** Coefficients, low- and high-humidity adjustments, and simple formula for HI &lt; 80°F checked against [WPC Heat Index Equation](https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml). Implementation in `src/lib/heatIndex.js` matches.
+- **Numeric spot-check:** 90°F, 90% RH → code yields 121.90°F, consistent with NWS-style calculators (~122°F).
+- **PAGASA bands:** Boundaries 27–32, 33–41, 42–51, ≥52°C and category labels checked against PAGASA heat index pages; `tempToPAGASALevel` in `src/services/heatRiskModel.js` matches.
 
-**Full list of cited sources (with links and DOIs):** **docs/CITED-SOURCES.md**.
+**Detailed verification table (what was checked, primary source URLs, results):** **docs/VALIDITY.md** §1.

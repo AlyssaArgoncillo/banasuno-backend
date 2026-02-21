@@ -9,7 +9,7 @@ import {
   getCurrentWeather as getWeatherWeatherAPI,
   getForecast as getWeatherForecast,
 } from "../services/weatherService.js";
-import { getDavaoBarangayGeo, getBarangayCentroids } from "../lib/barangays.js";
+import { getDavaoBarangayGeo, getBarangayCentroids, getBarangayCentroidsWithArea } from "../lib/barangays.js";
 import { getPopulationDensityByBarangayId } from "../lib/populationByBarangay.js";
 import { assessBarangayHeatRisk } from "../services/heatRiskModel.js";
 import {
@@ -52,6 +52,49 @@ const PER_BARANGAY = process.env.HEAT_PER_BARANGAY === "1" || process.env.HEAT_P
 
 /** Max °C to add for urban heat island (density proxy). 0 = disabled. */
 const UHI_MAX_C = Math.max(0, parseFloat(process.env.HEAT_UHI_MAX) || 0);
+
+/** Parse ?limit=N for heat endpoints: null = no limit, else 1–500. */
+function parseHeatLimit(raw) {
+  const parsed = Number.parseInt(String(raw ?? ""), 10);
+  if (raw == null || raw === "" || Number.isNaN(parsed) || parsed <= 0) return null;
+  return Math.min(500, parsed);
+}
+
+/**
+ * Shared context for heat endpoints that need WeatherAPI: cityId, limit, apiKey.
+ * Returns { ok: false, status, json } for 404/503; { ok: true, cityId, limit, apiKey } otherwise.
+ */
+function requireHeatContext(req) {
+  const cityId = (req.params.cityId || "").toLowerCase();
+  if (cityId !== "davao") {
+    return { ok: false, status: 404, json: { error: "City not supported", cityId } };
+  }
+  const apiKey = process.env.WEATHER_API_KEY;
+  if (!apiKey) {
+    return {
+      ok: false,
+      status: 503,
+      json: {
+        error: "WeatherAPI required for this endpoint",
+        hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/)",
+      },
+    };
+  }
+  return { ok: true, cityId, limit: parseHeatLimit(req.query.limit), apiKey };
+}
+
+/**
+ * Single fetch for endpoints that need temps + risk: one geo fetch, one temp fetch, one assessment.
+ * Use for barangay-heat-risk and barangay-capture to avoid duplicate work.
+ */
+async function getBarangayHeatData(apiKey, limit) {
+  const geo = await getDavaoBarangayGeo();
+  const tempsData = await fetchBarangayTempsWeatherAPI(apiKey, limit, geo);
+  const assessment = assessBarangayHeatRisk(tempsData.temperatures, {
+    humidityByBarangay: tempsData.humidityByBarangay,
+  });
+  return { geo, tempsData, assessment };
+}
 
 async function runWithConcurrency(items, fn) {
   const results = new Map();
@@ -155,13 +198,13 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
   }
 
   try {
-    const tempsData = await fetchBarangayTempsWeatherAPI(weatherApiKey, null);
+    const geo = await getDavaoBarangayGeo();
+    const tempsData = await fetchBarangayTempsWeatherAPI(weatherApiKey, null, geo);
     const temperatures = tempsData.temperatures || {};
     if (Object.keys(temperatures).length === 0) {
       return res.status(502).json({ error: "No temperature data returned; cannot generate report." });
     }
 
-    const geo = await getDavaoBarangayGeo();
     const centroids = getBarangayCentroids(geo);
     const barangayIds = centroids.map((c) => c.barangayId);
 
@@ -178,20 +221,12 @@ router.post("/heat/:cityId/pipeline-report/generate", async (req, res) => {
       facilityCounts[bid] = result.total ?? 0;
     }
 
-    let populationDensity = {};
-    try {
-      populationDensity = await getPopulationDensityByBarangayId();
-    } catch (e) {
-      console.warn("Population/density not loaded for pipeline generate:", e?.message);
-    }
-
     const rows = barangayIds
       .filter((id) => typeof temperatures[id] === "number")
       .map((id) => ({
         barangay_id: id,
         temp: temperatures[id],
         facility_score: 1 / (1 + (facilityCounts[id] ?? 0)),
-        density: (populationDensity[id] && Number(populationDensity[id].density)) || 0,
       }));
 
     if (rows.length === 0) {
@@ -251,103 +286,75 @@ router.post(
 );
 
 /**
- * GET /api/heat/:cityId/barangay-temperatures
- * Barangay heat temps only (used for heat risk): { temperatures: { [barangayId]: temp_c }, min, max }.
- * WeatherAPI per-barangay by lat,lon: air temp (temp_c) for validated Rothfusz+PAGASA path when humidity is used. Optional ?limit=N.
+ * GET /api/heat/:cityId/barangays
+ * Single barangay heat endpoint: temp + risk + lat/lng + area per barangay.
+ * Use for map, exports, or pipeline. Optional ?limit=N.
  */
-router.get("/heat/:cityId/barangay-temperatures", async (req, res) => {
-  const cityId = (req.params.cityId || "").toLowerCase();
-  if (cityId !== "davao") {
-    return res.status(404).json({ error: "City not supported", cityId });
-  }
-
-  const limitRaw = req.query.limit;
-  const parsed = Number.parseInt(String(limitRaw ?? ""), 10);
-  const limit =
-    limitRaw == null || limitRaw === "" || Number.isNaN(parsed) || parsed <= 0
-      ? null
-      : Math.min(500, parsed);
-
-  const weatherApiKey = process.env.WEATHER_API_KEY;
-  if (!weatherApiKey) {
-    return res.status(503).json({
-      error: "Weather API not configured",
-      hint: "Set WEATHER_API_KEY for barangay temperatures and heat risk (https://www.weatherapi.com/my/)",
-    });
-  }
+router.get("/heat/:cityId/barangays", async (req, res) => {
+  const ctx = requireHeatContext(req);
+  if (!ctx.ok) return res.status(ctx.status).json(ctx.json);
 
   try {
-    const data = await fetchBarangayTempsWeatherAPI(weatherApiKey, limit);
+    const { geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, ctx.limit);
+    const withArea = getBarangayCentroidsWithArea(geo);
+    const byId = new Map(withArea.map((b) => [b.barangayId, b]));
+
+    const barangays = [];
+    for (const [barangayId] of Object.entries(tempsData.temperatures)) {
+      const risk = assessment.risks[barangayId];
+      const geoRow = byId.get(barangayId);
+      if (!risk || !geoRow) continue;
+      barangays.push({
+        barangay_id: barangayId,
+        temp_c: risk.temp_c,
+        risk: {
+          score: risk.score,
+          level: risk.level,
+          label: risk.label,
+          ...(risk.heat_index_c != null ? { heat_index_c: risk.heat_index_c } : {}),
+        },
+        lat: geoRow.lat,
+        lng: geoRow.lng,
+        area_km2: geoRow.area_km2,
+      });
+    }
+
     return res.json({
-      temperatures: data.temperatures,
-      min: data.min,
-      max: data.max,
+      barangays,
+      updatedAt: new Date().toISOString(),
       meta: {
-        uniqueLocations: data.uniqueLocations,
-        perBarangay: data.perBarangay,
-        uhiMaxC: data.uhiMaxC,
-        autoSpreadApplied: data.autoSpreadApplied,
+        cityId: ctx.cityId,
+        count: barangays.length,
+        usedHeatIndex: assessment.usedHeatIndex,
+        temperaturesSource: "weatherapi",
+        legend: assessment.legend,
+        basis: assessment.basis,
       },
     });
   } catch (err) {
-    const status = err?.status || 500;
-    return res.status(status).json({ error: err?.message || "Failed to fetch temperature data" });
+    console.error("Barangays API error:", err);
+    return res.status(500).json({ error: "Failed to fetch barangay heat data" });
   }
 });
 
 /**
- * GET /api/heat/:cityId/average
- * City average heat only: single temperature for Davao center (WeatherAPI).
+ * GET /api/heat/:cityId/current
+ * City center current weather: temp, feels-like, difference. One WeatherAPI call.
  */
-router.get("/heat/:cityId/average", async (req, res) => {
+router.get("/heat/:cityId/current", async (req, res) => {
   const cityId = (req.params.cityId || "").toLowerCase();
   if (cityId !== "davao") {
     return res.status(404).json({ error: "City not supported", cityId });
   }
-
-  const weatherApiKey = process.env.WEATHER_API_KEY;
-  if (!weatherApiKey) {
+  const apiKey = process.env.WEATHER_API_KEY;
+  if (!apiKey) {
     return res.status(503).json({
-      error: "City average requires WeatherAPI",
-      hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/)",
-    });
-  }
-
-  try {
-    const temp_c = await fetchAverageTempOnly(weatherApiKey);
-    if (temp_c == null) {
-      return res.status(502).json({ error: "Failed to fetch city average from WeatherAPI" });
-    }
-    return res.json({
-      cityId,
-      temp_c,
-      source: "weatherapi",
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (err) {
-    const status = err?.status || 500;
-    return res.status(status).json({ error: err?.message || "Failed to fetch city average" });
-  }
-});
-
-/**
- * GET /api/heat/:cityId/temp-vs-feelslike
- * One WeatherAPI call for city center: returns air temp, feels-like, and their difference (for comparison).
- */
-router.get("/heat/:cityId/temp-vs-feelslike", async (req, res) => {
-  const cityId = (req.params.cityId || "").toLowerCase();
-  if (cityId !== "davao") {
-    return res.status(404).json({ error: "City not supported", cityId });
-  }
-  const weatherApiKey = process.env.WEATHER_API_KEY;
-  if (!weatherApiKey) {
-    return res.status(503).json({
-      error: "WeatherAPI not configured",
+      error: "WeatherAPI required",
       hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/)",
     });
   }
   try {
-    const weather = await getWeatherWeatherAPI(weatherApiKey, DAVAO_CENTER);
+    const weather = await getWeatherWeatherAPI(apiKey, DAVAO_CENTER);
     if (!weather || typeof weather.temp_c !== "number") {
       return res.status(502).json({ error: "Failed to fetch current weather from WeatherAPI" });
     }
@@ -360,12 +367,9 @@ router.get("/heat/:cityId/temp-vs-feelslike", async (req, res) => {
       feelslike_c != null ? Math.round((feelslike_c - temp_c) * 10) / 10 : null;
     return res.json({
       cityId,
-      location: DAVAO_CENTER,
       temp_c,
       feelslike_c,
       difference_c,
-      note:
-        "temp_c = air temperature. feelslike_c = perceived (humidity/wind). Heat routes use feelslike when available.",
       updatedAt: new Date().toISOString(),
     });
   } catch (err) {
@@ -427,81 +431,16 @@ router.get("/heat/:cityId/forecast", async (req, res) => {
 });
 
 /**
- * GET /api/heat/:cityId/barangay-heat-risk
- * Returns barangay temperatures (WeatherAPI per lat,lon) plus heuristic heat-risk assessment.
- */
-router.get("/heat/:cityId/barangay-heat-risk", async (req, res) => {
-  const cityId = (req.params.cityId || "").toLowerCase();
-  if (cityId !== "davao") {
-    return res.status(404).json({ error: "City not supported", cityId });
-  }
-
-  const limitRaw = req.query.limit;
-  const parsed = Number.parseInt(String(limitRaw ?? ""), 10);
-  const limit =
-    limitRaw == null || limitRaw === "" || Number.isNaN(parsed) || parsed <= 0
-      ? null
-      : Math.min(500, parsed);
-
-  const weatherApiKey = process.env.WEATHER_API_KEY;
-  if (!weatherApiKey) {
-    return res.status(503).json({
-      error: "Heat risk requires WeatherAPI",
-      hint: "Set WEATHER_API_KEY (https://www.weatherapi.com/my/)",
-    });
-  }
-
-  try {
-    const tempsData = await fetchBarangayTempsWeatherAPI(weatherApiKey, limit);
-    const values = Object.values(tempsData.temperatures);
-    tempsData.averageTemp = values.length ? values.reduce((a, b) => a + b, 0) / values.length : undefined;
-
-    let populationDensityByBarangay = {};
-    try {
-      populationDensityByBarangay = await getPopulationDensityByBarangayId();
-    } catch (err) {
-      console.warn("Population/density data not loaded, heat risk will not include urban density:", err?.message);
-    }
-    const assessment = assessBarangayHeatRisk(tempsData.temperatures, {
-      averageTemp: tempsData.averageTemp,
-      humidityByBarangay: tempsData.humidityByBarangay,
-      populationDensityByBarangay,
-    });
-
-    return res.json({
-      temperatures: tempsData.temperatures,
-      averageTemp: assessment.averageTemp,
-      risks: assessment.risks,
-      minRisk: assessment.minScore,
-      maxRisk: assessment.maxScore,
-      counts: assessment.counts,
-      legend: assessment.legend,
-      basis: assessment.basis,
-      usedHeatIndex: assessment.usedHeatIndex,
-      updatedAt: new Date().toISOString(),
-      meta: {
-        cityId,
-        temperaturesSource: "weatherapi",
-        averageSource: "weatherapi",
-        perBarangay: PER_BARANGAY,
-        uhiMaxC: UHI_MAX_C,
-        autoSpreadApplied: tempsData.autoSpreadApplied,
-      },
-    });
-  } catch (err) {
-    console.error("Heat risk API error:", err);
-    return res.status(500).json({ error: "Failed to assess heat risk" });
-  }
-});
-
-/**
  * WeatherAPI per-barangay: fetch by lat,lon for each centroid. Used for heat risk.
  * Uses air temperature (temp_c) for validated path: with humidity → NOAA Rothfusz heat index → PAGASA.
  * WeatherAPI supports q="lat,lon" (https://www.weatherapi.com/docs/). Cached by location (10 min).
+ * @param {string} apiKey
+ * @param {number|null} limit - Cap barangays; null = all.
+ * @param {object|null} [geo] - Optional pre-fetched GeoJSON; when provided, avoids a second getDavaoBarangayGeo() in the same request.
  */
-async function fetchBarangayTempsWeatherAPI(apiKey, limit = null) {
-  const geo = await getDavaoBarangayGeo();
-  const listAll = getBarangayCentroids(geo);
+async function fetchBarangayTempsWeatherAPI(apiKey, limit = null, geo = null) {
+  const geoData = geo != null ? geo : await getDavaoBarangayGeo();
+  const listAll = getBarangayCentroids(geoData);
   const effectiveLimit =
     limit != null && Number.isFinite(limit) ? Math.max(0, Math.min(500, limit)) : null;
   const list = effectiveLimit == null ? listAll : listAll.slice(0, effectiveLimit);
@@ -606,24 +545,6 @@ async function fetchBarangayTempsWeatherAPI(apiKey, limit = null) {
     uhiMaxC: UHI_MAX_C,
     autoSpreadApplied: allSame && UHI_MAX_C === 0 && barIds.length > 1,
   };
-}
-
-/** City average: air temperature for Davao center (for delta_c and validated path consistency). */
-async function fetchAverageTempOnly(apiKey) {
-  const now = Date.now();
-  let temp = null;
-  const cached = weatherCache.get(CACHE_KEY_AVG);
-  if (cached && now - cached.ts < CACHE_TTL_MS) {
-    temp = cached.temp_c;
-  } else {
-    const weather = await getWeatherWeatherAPI(apiKey, DAVAO_CENTER);
-    temp =
-      weather && typeof weather.temp_c === "number"
-        ? Math.round(weather.temp_c * 10) / 10
-        : null;
-    if (temp != null) weatherCache.set(CACHE_KEY_AVG, { temp_c: temp, ts: now });
-  }
-  return temp;
 }
 
 export default router;

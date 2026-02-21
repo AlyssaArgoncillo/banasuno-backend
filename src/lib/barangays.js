@@ -60,3 +60,22 @@ export function getBarangayCentroids(geo) {
   return list;
 }
 
+/**
+ * Get list of barangays with id, centroid (lat, lng), and area_km2 from GeoJSON properties.
+ * @param {{ features: import('geojson').Feature[] }} geo
+ * @returns {Array<{ barangayId: string, lat: number, lng: number, area_km2: number }>}
+ */
+export function getBarangayCentroidsWithArea(geo) {
+  if (!geo?.features?.length) return [];
+  const list = [];
+  for (const f of geo.features) {
+    const id = getBarangayId(f);
+    const centroid = getFeatureCentroid(f);
+    const areaKm2 = Number(f.properties?.area_km2) || 0;
+    if (id == null || !centroid) continue;
+    const [lng, lat] = centroid;
+    list.push({ barangayId: id, lat, lng, area_km2 });
+  }
+  return list;
+}
+

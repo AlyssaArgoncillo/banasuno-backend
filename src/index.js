@@ -40,15 +40,14 @@ app.get("/api", (req, res) => {
       "GET /api/facilities/by-barangay/:barangayId": "Facilities assigned to barangay by nearest barangay lat/lon only",
       "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for AI pipeline)",
       "GET /api/types": "Facility type summary",
-      "GET /api/heat/:cityId/barangay-temperatures": "Barangay heat temps by lat,lon (for heat risk). WeatherAPI. Optional ?limit=.",
-      "GET /api/heat/:cityId/average": "City average heat only (Davao center). WeatherAPI.",
-      "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (cityId: davao; ?days=7|14). WeatherAPI.",
-      "GET /api/heat/:cityId/barangay-heat-risk": "Barangay temps (WeatherAPI) + heat-risk assessment. Optional ?limit=.",
-      "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (PSA + GeoJSON area) for AI pipeline (cityId: davao)",
-      "GET /api/heat/:cityId/pipeline-report/meta": "Disclaimer, sources, validity, updatedAt for pipeline report (for UI)",
-      "GET /api/heat/:cityId/pipeline-report": "Download latest pipeline heat-risk report CSV (cityId: davao); 404 if none uploaded",
-      "POST /api/heat/:cityId/pipeline-report/generate": "Generate pipeline report on demand (heat + facilities + density, K-Means); then download via GET pipeline-report",
-      "POST /api/heat/:cityId/pipeline-report": "Upload pipeline report CSV (body: text/csv; optional x-pipeline-report-key if PIPELINE_REPORT_WRITER_KEY set)",
+      "GET /api/heat/:cityId/barangays": "Per-barangay temp + risk + lat/lng + area. Optional ?limit=.",
+      "GET /api/heat/:cityId/current": "City center current weather (temp, feels-like). WeatherAPI.",
+      "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (?days=7|14). WeatherAPI.",
+      "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (PSA + GeoJSON). Pipeline only.",
+      "GET /api/heat/:cityId/pipeline-report/meta": "Pipeline report meta (updatedAt, disclaimer).",
+      "GET /api/heat/:cityId/pipeline-report": "Download pipeline report CSV. 404 if none.",
+      "POST /api/heat/:cityId/pipeline-report/generate": "Generate pipeline report (heat + facilities, K-Means).",
+      "POST /api/heat/:cityId/pipeline-report": "Upload pipeline report CSV (body: text/csv; x-pipeline-report-key if set).",
     },
   });
 });
@@ -76,6 +75,6 @@ export default app;
 if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`BanasUno backend: http://localhost:${PORT}`);
-    console.log(`  GET /api/facilities, /api/facilities/:id, /api/types, /api/heat/:cityId/barangay-temperatures, /api/heat/:cityId/barangay-heat-risk, /api/heat/:cityId/forecast`);
+    console.log(`  GET /api/facilities, /api/types, /api/heat/:cityId/barangays, /api/heat/:cityId/forecast`);
   });
 }

@@ -29,11 +29,10 @@ Sample response bodies for the main backend endpoints. Base URL: `http://localho
     "GET /api/facilities/by-barangay/:barangayId": "Facilities assigned to barangay by nearest barangay lat/lon only",
     "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for pipeline)",
     "GET /api/types": "Facility type summary",
-    "GET /api/heat/:cityId/barangay-temperatures": "Barangay heat temps by lat,lon. Optional ?limit=.",
-    "GET /api/heat/:cityId/average": "City average heat only (Davao center).",
+    "GET /api/heat/:cityId/barangays": "Per-barangay temp + risk + lat/lng + area. Optional ?limit=.",
+    "GET /api/heat/:cityId/current": "City center current weather (temp, feels-like).",
     "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (?days=7|14).",
-    "GET /api/heat/:cityId/barangay-heat-risk": "Barangay temps + heat-risk assessment. Optional ?limit=.",
-    "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (cityId: davao).",
+    "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (pipeline).",
     "GET /api/heat/:cityId/pipeline-report/meta": "Pipeline report meta (available, updatedAt).",
     "GET /api/heat/:cityId/pipeline-report": "Download latest pipeline report CSV; 404 if none.",
     "POST /api/heat/:cityId/pipeline-report/generate": "Generate pipeline report on demand.",
@@ -141,111 +140,51 @@ Sample response bodies for the main backend endpoints. Base URL: `http://localho
 
 ## Heat API
 
-### GET /api/heat/davao/barangay-temperatures
+### GET /api/heat/davao/barangays
 
-Optional: `?limit=5`.
-
-```json
-{
-  "temperatures": {
-    "1130700001": 26.3,
-    "1130700002": 26.5,
-    "1130700003": 26.5
-  },
-  "min": 26.3,
-  "max": 26.5,
-  "meta": {
-    "uniqueLocations": 3,
-    "perBarangay": false,
-    "uhiMaxC": 0,
-    "autoSpreadApplied": false
-  }
-}
-```
-
-### GET /api/heat/davao/average
+Per-barangay temp + risk + lat/lng + area. Optional: `?limit=5`.
 
 ```json
 {
-  "cityId": "davao",
-  "temp_c": 26.6,
-  "source": "weatherapi",
-  "updatedAt": "2026-02-20T12:00:00.000Z"
-}
-```
-
-### GET /api/heat/davao/temp-vs-feelslike
-
-```json
-{
-  "cityId": "davao",
-  "location": "7.1907,125.4553",
-  "temp_c": 26.5,
-  "feelslike_c": 27.2,
-  "difference_c": 0.7,
-  "note": "temp_c = air temperature. feelslike_c = perceived (humidity/wind). Heat routes use feelslike when available.",
-  "updatedAt": "2026-02-20T12:00:00.000Z"
-}
-```
-
-### GET /api/heat/davao/barangay-heat-risk
-
-Optional: `?limit=5`.
-
-```json
-{
-  "temperatures": {
-    "1130700001": 26.3,
-    "1130700002": 26.5
-  },
-  "averageTemp": 26.4,
-  "risks": {
-    "1130700001": {
-      "score": 0,
-      "level": 1,
-      "label": "Not Hazardous",
+  "barangays": [
+    {
+      "barangay_id": "1130700001",
       "temp_c": 26.3,
-      "delta_c": -0.1,
-      "population": 3861,
-      "density": 351
-    },
-    "1130700002": {
-      "score": 0,
-      "level": 1,
-      "label": "Not Hazardous",
-      "temp_c": 26.5,
-      "delta_c": 0.1,
-      "population": 7064,
-      "density": 0
+      "risk": {
+        "score": 0,
+        "level": 1,
+        "label": "Not Hazardous"
+      },
+      "lat": 7.12,
+      "lng": 125.61,
+      "area_km2": 2.5
     }
-  },
-  "minRisk": 0,
-  "maxRisk": 0,
-  "counts": {
-    "not_hazardous": 2,
-    "caution": 0,
-    "extreme_caution": 0,
-    "danger": 0,
-    "extreme_danger": 0
-  },
-  "legend": [
-    { "level": 1, "label": "Not Hazardous", "range": "< 27°C", "color": "#48bb78" },
-    { "level": 2, "label": "Caution", "range": "27–32°C", "color": "#ecc94b" },
-    { "level": 3, "label": "Extreme Caution", "range": "33–41°C", "color": "#ed8936" },
-    { "level": 4, "label": "Danger", "range": "42–51°C", "color": "#f97316" },
-    { "level": 5, "label": "Extreme Danger", "range": "≥ 52°C", "color": "#dc2626" }
   ],
-  "basis": "PAGASA level (air temp) → score = (level−1)/4. Add humidity for validated heat index. Refs: docs/HEAT-RISK-MODEL-BASIS.md",
-  "usedHeatIndex": false,
   "updatedAt": "2026-02-20T12:00:00.000Z",
   "meta": {
     "cityId": "davao",
+    "count": 1,
+    "usedHeatIndex": false,
     "temperaturesSource": "weatherapi",
-    "averageSource": "weatherapi",
-    "perBarangay": false,
-    "uhiMaxC": 0,
-    "autoSpreadApplied": false
+    "legend": [],
+    "basis": "PAGASA level (air temp) → score = (level−1)/4. Refs: docs/HEAT-RISK-MODEL-BASIS.md"
   }
+}
+```
+
+When humidity is available, `risk` may include `heat_index_c`. Use for map, exports, or pipeline.
+
+### GET /api/heat/davao/current
+
+City center current weather (one WeatherAPI call).
+
+```json
+{
+  "cityId": "davao",
+  "temp_c": 26.5,
+  "feelslike_c": 27.2,
+  "difference_c": 0.7,
+  "updatedAt": "2026-02-20T12:00:00.000Z"
 }
 ```
 

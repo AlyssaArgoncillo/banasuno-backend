@@ -9,11 +9,11 @@ This document describes **what each process actually does**, **where the data co
 **What it does:** Provides **air temperature (°C)** per barangay (or one city-wide value for all barangays) for the heat map. Used as the primary input for the heat-risk assessment.
 
 **Where it comes from:**
-- **WeatherAPI** (`WEATHER_API_KEY`): Per-barangay current weather by centroid (lat,lon). Each barangay can have a different temperature. Cached 10 minutes per location.
+- **WeatherAPI** (`WEATHER_API_KEY`): Per-barangay current weather by centroid (lat,lon). Each barangay can have a different temperature and **relative humidity** (%). Cached 10 minutes per location. Humidity is returned by WeatherAPI’s current weather endpoint and is used when available for PAGASA-aligned heat index; see **Barangay heat risk** below.
 
 **Validity and limitations:**
-- Temperatures are **model/API outputs**, not official PAGASA or NWS observations. They are suitable for **planning and awareness**, not for regulatory or official hazard declaration.
-- When **humidity** is available per barangay, the backend can compute **heat index** (NOAA Rothfusz) for risk levels; see **Barangay heat risk** below. (WeatherAPI does not provide per-point humidity in the current flow.)
+- Temperatures (and humidity) are **model/API outputs**, not official PAGASA or NWS observations. They are suitable for **planning and awareness**, not for regulatory or official hazard declaration.
+- When **humidity** is available per barangay, the backend computes **heat index** (NOAA Rothfusz) and maps it to PAGASA categories for risk levels.
 - **Not a substitute** for local weather stations or official heat advisories from PAGASA.
 
 **References:** See **docs/HEAT-RISK-MODEL-BASIS.md** and **docs/CITED-SOURCES.md**.
@@ -22,10 +22,10 @@ This document describes **what each process actually does**, **where the data co
 
 ## 2. Barangay heat risk (map risk levels)
 
-**What it does:** Assigns each barangay a **risk level 1–5** (PAGASA-style: Not Hazardous, Caution, Extreme Caution, Danger, Extreme Danger) and a **score 0–1**. The score is derived **only** from the validated PAGASA level; population/density and delta from average are **reported for information** and do **not** change the score.
+**What it does:** Assigns each barangay a **risk level 1–5** (PAGASA-style: Not Hazardous, Caution, Extreme Caution, Danger, Extreme Danger) and a **score 0–1**. The score is derived **only** from the validated PAGASA level. The API returns only validated outputs (score, level, label, temp_c, heat_index_c when used); no delta, population, or density.
 
 **Where it comes from:**
-- **Input:** Barangay temperatures (from WeatherAPI per lat,lon, see above). Optionally **relative humidity** per barangay for heat index (not provided by current WeatherAPI flow).
+- **Input:** Barangay temperatures and **relative humidity** (from WeatherAPI current weather per lat,lon, see above). When humidity is returned, heat index is used for PAGASA-aligned risk.
 - **Heat index (when humidity available):** **NOAA Rothfusz** formula (NWS SR 90-23). Official source: https://www.wpc.ncep.noaa.gov/html/heatindex_equation.shtml
 - **Risk levels and bands:** **PAGASA** heat index classification (27–32°C Caution, 33–41°C Extreme Caution, etc.). Official source: https://www.pagasa.dost.gov.ph/weather/heat-index
 - **Score:** `(level − 1) / 4` so level 1→0, 5→1. No delta or density in score.
@@ -52,17 +52,16 @@ This document describes **what each process actually does**, **where the data co
 
 ## 4. Pipeline heat-risk report (generate and download)
 
-**What it does:** Produces a **CSV report** of barangay-level **risk_level** (1–5) and **cluster** from a **weighted pipeline**: temperature (or heat index when available), **facility access** (fewer facilities → higher risk proxy), and **population density** (when available). Uses **K-Means** (k=5) and **equal-weight** combination, then maps clusters to PAGASA-style levels 1–5 by severity rank. This is a **different methodology** from the map’s heat risk: the map uses **validated-only** (heat index or temp → PAGASA → score); the pipeline adds **facilities and density** for **batch prioritization**.
+**What it does:** Produces a **CSV report** of barangay-level **risk_level** (1–5) and **cluster** from a **weighted pipeline**: temperature (or heat index when available), **facility access** (fewer facilities → higher risk proxy). Uses **K-Means** (k=5) and **equal-weight** combination, then maps clusters to PAGASA-style levels 1–5 by severity rank. This is a **different methodology** from the map’s heat risk: the map uses **validated-only** (heat index or temp → PAGASA → score); the pipeline adds **facilities** for **batch prioritization**.
 
 **Where it comes from:**
 - **Temperature / heat index:** Same as barangay heat risk (WeatherAPI; heat index when humidity available).
 - **Facility score:** Backend facilities data (Postgres); score = **1 / (1 + facility_count)** per barangay.
-- **Population / density:** **PSA 2020** census + GeoJSON area → persons/km² (backend `barangay-population`).
-- **Method:** Equal weight approach (EWA), MinMaxScaler, K-Means k=5, cluster rank → level 1–5. See **docs/PIPELINE-COMPUTATIONAL-BASIS.md**.
+- **Method:** Equal weight approach (EWA) — 1/2 each for temperature and facility score; MinMaxScaler, K-Means k=5, cluster rank → level 1–5. See **docs/PIPELINE-COMPUTATIONAL-BASIS.md**.
 
 **Validity and limitations:**
 - **Validated (cited):** Temperature when heat index (NOAA Rothfusz); PAGASA level bands; EWA weighting (literature-supported).
-- **Standard / reproducible:** MinMaxScaler, K-Means, cluster→level mapping. **Facility score** 1/(1+n) is a common access proxy, not from a single cited formula. **Density** as exposure factor is conceptually supported (e.g. Estoque et al., Reid et al.); exact weight is our choice.
+- **Standard / reproducible:** MinMaxScaler, K-Means, cluster→level mapping. **Facility score** 1/(1+n) is a common access proxy, not from a single cited formula.
 - Reports are **for planning and prioritization only**. They are **not** official health or hazard reports and should **not** be used as the sole basis for resource allocation or regulatory decisions. Always combine with official sources and local knowledge.
 
 **Report CSV:** The downloaded/generated report CSV includes an **introduction comment block** at the top (lines starting with `#`): disclaimer, sources, and computation summary. Parsers that skip `#` lines will see only the header and data rows.
@@ -78,7 +77,7 @@ This document describes **what each process actually does**, **where the data co
 | Barangay temperatures| Temp °C per barangay by lat,lon       | WeatherAPI                     | For planning; not official observations |
 | Barangay heat risk   | Level 1–5 + score from temp/heat index| NOAA Rothfusz, PAGASA          | Validated when heat index; for awareness only |
 | Forecast             | 7/14-day forecast for city            | WeatherAPI                     | Third-party; for general planning       |
-| Pipeline report      | CSV risk_level by barangay (temp + facilities + density) | Same temps, Postgres facilities, PSA + GeoJSON | EWA + K-Means; for prioritization only; not official |
+| Pipeline report      | CSV risk_level by barangay (temp + facilities) | Same temps, Postgres facilities | EWA + K-Means; for prioritization only; not official |
 
 ---
 

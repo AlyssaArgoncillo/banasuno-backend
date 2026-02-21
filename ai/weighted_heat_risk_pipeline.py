@@ -2,11 +2,11 @@
 """
 Weighted heat risk pipeline.
 
-Uses barangay_data.csv (barangay_id, date, temperature, facility_distance, optional population/density)
-from API-backed data. Computes 7-day rolling averages, normalizes features,
-runs K-Means (k=5), then assigns PAGASA risk levels 1–5 by weighted severity.
+Uses barangay_data.csv (barangay_id, date, temperature, facility_distance) from API-backed data.
+Computes 7-day rolling averages, normalizes features, runs K-Means (k=5),
+then assigns PAGASA risk levels 1–5 by weighted severity.
 
-Weights: equal weights (EWA) – 1/3 each when 3 features (temp, facility, density), 1/2 each when 2 features.
+Weights: equal weights (EWA) – 1/2 each for temp and facility_score (two features).
 Temperature: use heat index °C when fetch script got it from backend (validated); else air temp.
 Computational basis: docs/PIPELINE-COMPUTATIONAL-BASIS.md.
 """
@@ -14,8 +14,8 @@ Computational basis: docs/PIPELINE-COMPUTATIONAL-BASIS.md.
 # Introduction comment block for CSV: disclaimer, sources, computation (lines start with # for CSV readers that skip comments).
 CSV_INTRODUCTION = r"""# Pipeline heat-risk report – introduction
 # Disclaimer: This report is for planning and prioritization only. It is not an official PAGASA or health hazard report and should not be used as the sole basis for resource allocation or regulatory decisions. Combine with official sources and local knowledge.
-# Sources: Temperature/heat index from backend (WeatherAPI; NOAA Rothfusz when humidity available). PAGASA heat index bands (https://www.pagasa.dost.gov.ph/weather/heat-index). Facility score from backend facilities (Postgres). Population/density from PSA 2020 census + GeoJSON (backend barangay-population). Equal weight approach (EWA) validated per literature (e.g. Urban Climate 2024, DOI 10.1016/j.uclim.2024.101838). Full refs: docs/CITED-SOURCES.md, docs/DISCLAIMERS.md.
-# Computation: Inputs = temperature (or heat index °C when available), facility_score = 1/(1+facility_count), density (persons/km²). Weights = 1/3 each if 3 features (temp, facility, density), else 1/2 each (temp, facility). MinMaxScaler to [0,1], K-Means k=5, cluster severity = weighted mean of scaled features; rank clusters by severity → risk_level 1 (lowest) to 5 (highest). See docs/PIPELINE-COMPUTATIONAL-BASIS.md.
+# Sources: Temperature/heat index from backend (WeatherAPI; NOAA Rothfusz when humidity available). PAGASA heat index bands (https://www.pagasa.dost.gov.ph/weather/heat-index). Facility score from backend facilities (Postgres). Equal weight approach (EWA) validated per literature (e.g. Urban Climate 2024, DOI 10.1016/j.uclim.2024.101838). Full refs: docs/CITED-SOURCES.md, docs/DISCLAIMERS.md.
+# Computation: Inputs = temperature (or heat index °C when available), facility_score = 1/(1+facility_count). Weights = 1/2 each (temp, facility). MinMaxScaler to [0,1], K-Means k=5, cluster severity = weighted mean of scaled features; rank clusters by severity → risk_level 1 (lowest) to 5 (highest). See docs/PIPELINE-COMPUTATIONAL-BASIS.md.
 """
 
 import argparse
@@ -30,7 +30,7 @@ from sklearn.preprocessing import MinMaxScaler
 
 
 def load_data(path: str) -> pd.DataFrame:
-    """Load CSV with required columns: barangay_id, date, temperature, facility_distance (or facility_score). Optional: population, density."""
+    """Load CSV with required columns: barangay_id, date, temperature, facility_distance (or facility_score). Optional columns (e.g. population, density) are ignored."""
     df = pd.read_csv(path)
     for col in ["barangay_id", "date", "temperature", "facility_distance"]:
         if col not in df.columns and col != "facility_distance":
@@ -39,10 +39,6 @@ def load_data(path: str) -> pd.DataFrame:
         df["facility_distance"] = df["facility_score"]
     elif "facility_distance" not in df.columns:
         raise ValueError("Missing column: facility_distance or facility_score")
-    if "density" not in df.columns:
-        df["density"] = 0.0
-    if "population" not in df.columns:
-        df["population"] = 0
     return df
 
 
@@ -65,15 +61,10 @@ def prepare_features(
         df["temp_rolling"] = df["temperature"]
 
     df["facility_score"] = df["facility_distance"]
-    df["density"] = pd.to_numeric(df["density"], errors="coerce").fillna(0)
 
-    has_density = df["density"].gt(0).any()
-    if has_density:
-        feature_cols = ["temp_rolling", "facility_score", "density"]
-        weights = np.array([1.0 / 3, 1.0 / 3, 1.0 / 3])  # Equal weight approach (EWA), validated
-    else:
-        feature_cols = ["temp_rolling", "facility_score"]
-        weights = np.array([0.5, 0.5])  # Equal weight approach (EWA), validated
+    # Two features only: temp and facility score (EWA 1/2 each)
+    feature_cols = ["temp_rolling", "facility_score"]
+    weights = np.array([0.5, 0.5])  # Equal weight approach (EWA), validated
 
     features = df[feature_cols].copy()
     features = features.fillna(features.mean(numeric_only=True))
@@ -109,7 +100,7 @@ def main() -> int:
     parser.add_argument(
         "--input",
         default="barangay_data.csv",
-        help="Input CSV (barangay_id, date, temperature, facility_distance, optional population/density)",
+        help="Input CSV (barangay_id, date, temperature, facility_distance)",
     )
     parser.add_argument(
         "--output",

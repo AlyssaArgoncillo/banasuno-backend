@@ -1,6 +1,6 @@
 /**
  * In-process pipeline report generator (same logic as ai/weighted_heat_risk_pipeline.py).
- * Builds feature matrix (temp, facility_score, density), MinMaxScale, K-Means k=5, rank clusters → PAGASA levels 1–5.
+ * Builds feature matrix (temp, facility_score), MinMaxScale, K-Means k=5, rank clusters → PAGASA levels 1–5.
  * Used by POST /api/heat/:cityId/pipeline-report/generate so the frontend can trigger report generation.
  */
 
@@ -120,7 +120,7 @@ function kmeans(scaled, k = 5, seed = 42) {
  * Build pipeline report CSV (barangay_id, risk_level, cluster) from feature rows.
  * Same methodology as ai/weighted_heat_risk_pipeline.py: EWA weights, K-Means k=5, rank by weighted mean → PAGASA 1–5.
  *
- * @param {Array<{ barangay_id: string, temp: number, facility_score: number, density: number }>} rows
+ * @param {Array<{ barangay_id: string, temp: number, facility_score: number }>} rows
  * @returns {string} CSV content
  */
 export function runPipelineReport(rows) {
@@ -128,13 +128,8 @@ export function runPipelineReport(rows) {
     return "barangay_id,risk_level,cluster\n";
   }
 
-  const hasDensity = rows.some((r) => Number(r.density) > 0);
-  const featureCols = hasDensity ? ["temp", "facility_score", "density"] : ["temp", "facility_score"];
-  const weights = hasDensity ? [1 / 3, 1 / 3, 1 / 3] : [0.5, 0.5];
-
-  const matrix = rows.map((r) =>
-    featureCols.map((col) => (col === "temp" ? r.temp : col === "facility_score" ? r.facility_score : r.density ?? 0))
-  );
+  const weights = [0.5, 0.5]; // EWA: temp and facility_score only
+  const matrix = rows.map((r) => [r.temp, r.facility_score]);
   const scaled = minMaxScale(matrix);
   const assignments = kmeans(scaled, 5, 42);
 

@@ -79,10 +79,9 @@ The health facilities data comes from the [Philippines](https://github.com/...) 
 | GET | `/api/facilities` | List facilities (query: `type`, `source`, `ownership`, `name`, `limit`, `offset`) |
 | GET | `/api/facilities/:id` | One facility by id |
 | GET | `/api/types` | Facility type summary |
-| GET | `/api/heat/:cityId/barangay-temperatures` | **Barangay heat temps only** — per-barangay °C by lat/lon (air temp). Optional `?limit=N`. Source: [WeatherAPI](https://www.weatherapi.com/). |
-| GET | `/api/heat/:cityId/average` | **City average heat only** — single temp for Davao center. Source: WeatherAPI. |
-| GET | `/api/heat/:cityId/forecast` | **7- or 14-day forecast** — `?days=7` (default) or `?days=14`. Source: [WeatherAPI](https://www.weatherapi.com/). |
-| GET | `/api/heat/:cityId/barangay-heat-risk` | Barangay temps + PAGASA heat-risk levels. Optional `?limit=N`. Sources: same as barangay-temperatures. |
+| GET | `/api/heat/:cityId/barangays` | Per-barangay temp + risk + lat/lng + area. Optional `?limit=N`. Source: [WeatherAPI](https://www.weatherapi.com/). |
+| GET | `/api/heat/:cityId/current` | City center current weather (temp, feels-like). WeatherAPI. |
+| GET | `/api/heat/:cityId/forecast` | 7- or 14-day forecast (`?days=7` \| `14`). WeatherAPI. |
 | GET | `/health` | Health check (database status) |
 
 ## Deployment
@@ -99,14 +98,18 @@ Data used by the heat and forecast APIs comes from third-party providers and is 
 
 | Data | Source | Use / limitation |
 |------|--------|-------------------|
-| **Barangay temperatures** | [WeatherAPI](https://www.weatherapi.com/) (per-barangay by lat,lon) | Model/API output; not a substitute for official heat advisories or local stations. |
-| **City average** | WeatherAPI (Davao center) | Same as above. |
+| **Barangay heat (barangays)** | [WeatherAPI](https://www.weatherapi.com/) (per-barangay by lat,lon) | Model/API output; not a substitute for official heat advisories or local stations. |
+| **City current** | WeatherAPI (Davao center) | Same as above. |
 | **7/14-day forecast** | [WeatherAPI](https://www.weatherapi.com/) | Third-party; for general planning only; not from PAGASA/NWS. |
 | **Heat risk levels (1–5)** | PAGASA heat index bands + NOAA Rothfusz (when humidity available) | Validated methods; for awareness only; not official PAGASA advisories. |
-| **Pipeline report** | Temp + facilities (Postgres) + population (PSA + GeoJSON); K-Means, EWA | For prioritization only; not an official health or hazard report. |
+| **Pipeline report** | Temp + facilities (Postgres); K-Means, EWA (1/2 each) | For prioritization only; not an official health or hazard report. |
 
 - **Full disclaimers (what each process does, validity):** **`docs/DISCLAIMERS.md`**
 - **Cited sources (NOAA, PAGASA, DOIs):** **`docs/CITED-SOURCES.md`**
+- **Logic flows (backend + pipeline, step-by-step):** **`docs/LOGIC-FLOWS.md`**
+- **Validity and verification (cross-check vs primary sources):** **`docs/VALIDITY.md`**
+
+  **Canonical sources:** Flow tables live in **LOGIC-FLOWS.md**; verification/validity tables in **VALIDITY.md**; bibliography in **CITED-SOURCES.md**. Other docs point to these to avoid duplication.
 
 ---
 
