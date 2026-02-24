@@ -364,6 +364,71 @@ router.get("/heat/:cityId/barangays", async (req, res) => {
 });
 
 /**
+ * GET /api/heat/:cityId/barangays/:barangayId
+ * Fetch heat data for a specific barangay by its ID (PSGC code).
+ * Returns temp + risk + lat/lng + area for the single barangay.
+ */
+router.get("/heat/:cityId/barangays/:barangayId", async (req, res) => {
+  const ctx = requireHeatContext(req);
+  if (!ctx.ok) return res.status(ctx.status).json(ctx.json);
+
+  const barangayId = req.params.barangayId;
+  if (!barangayId) {
+    return res.status(400).json({ error: "Barangay ID is required" });
+  }
+
+  try {
+    const { geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, null, ctx.provider);
+    const withArea = getBarangayCentroidsWithArea(geo);
+    const byId = new Map(withArea.map((b) => [b.barangayId, b]));
+
+    const risk = assessment.risks[barangayId];
+    const geoRow = byId.get(barangayId);
+
+    if (!risk || !geoRow) {
+      return res.status(404).json({
+        error: "Barangay not found",
+        barangayId,
+        hint: "Use GET /api/heat/davao/barangays to see all available barangay IDs"
+      });
+    }
+
+    const barangay = {
+      barangay_id: barangayId,
+      temp_c: risk.temp_c,
+      risk: {
+        score: risk.score,
+        level: risk.level,
+        label: risk.label,
+        ...(risk.heat_index_c != null ? { heat_index_c: risk.heat_index_c } : {}),
+      },
+      lat: geoRow.lat,
+      lng: geoRow.lng,
+      area_km2: geoRow.area_km2,
+    };
+
+    return res.json({
+      barangay,
+      updatedAt: new Date().toISOString(),
+      meta: {
+        cityId: ctx.cityId,
+        usedHeatIndex: assessment.usedHeatIndex,
+        temperaturesSource: temperaturesSourceLabel(ctx.provider),
+        legend: assessment.legend,
+        basis: assessment.basis,
+      },
+    });
+  } catch (err) {
+    console.error("Single barangay API error:", err);
+    return res.status(500).json({
+      error: "Failed to fetch barangay heat data",
+      details: err.message,
+      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+    });
+  }
+});
+
+/**
  * GET /api/heat/:cityId/current
  * City center current weather: temp, feels-like, difference. One WeatherAPI call.
  */

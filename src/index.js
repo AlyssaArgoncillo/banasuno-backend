@@ -41,6 +41,7 @@ app.get("/api", (req, res) => {
       "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for AI pipeline)",
       "GET /api/types": "Facility type summary",
       "GET /api/heat/:cityId/barangays": "Per-barangay temp + risk + lat/lng + area. Optional ?limit=.",
+      "GET /api/heat/:cityId/barangays/:barangayId": "Get heat data for a specific barangay by ID (PSGC code).",
       "GET /api/heat/:cityId/current": "City center current weather (temp, feels-like). WeatherAPI.",
       "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (?days=7|14). WeatherAPI.",
       "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (PSA + GeoJSON). Pipeline only.",

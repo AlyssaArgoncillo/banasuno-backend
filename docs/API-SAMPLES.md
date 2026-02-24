@@ -30,6 +30,7 @@ Sample response bodies for the main backend endpoints. Base URL: `http://localho
     "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for pipeline)",
     "GET /api/types": "Facility type summary",
     "GET /api/heat/:cityId/barangays": "Per-barangay temp + risk + lat/lng + area. Optional ?limit=.",
+    "GET /api/heat/:cityId/barangays/:barangayId": "Get heat data for a specific barangay by ID (PSGC code).",
     "GET /api/heat/:cityId/current": "City center current weather (temp, feels-like).",
     "GET /api/heat/:cityId/forecast": "7- or 14-day forecast (?days=7|14).",
     "GET /api/heat/:cityId/barangay-population": "Population and density per barangay (pipeline).",
@@ -173,6 +174,45 @@ Per-barangay temp + risk + lat/lng + area. Optional: `?limit=5`.
 ```
 
 When humidity is available, `risk` may include `heat_index_c`. Use for map, exports, or pipeline.
+
+### GET /api/heat/davao/barangays/:barangayId
+
+Get heat data for a specific barangay by its ID (PSGC code). Example: `/api/heat/davao/barangays/1130700001`
+
+```json
+{
+  "barangay": {
+    "barangay_id": "1130700001",
+    "temp_c": 26.3,
+    "risk": {
+      "score": 0,
+      "level": 1,
+      "label": "Not Hazardous"
+    },
+    "lat": 7.12,
+    "lng": 125.61,
+    "area_km2": 2.5
+  },
+  "updatedAt": "2026-02-20T12:00:00.000Z",
+  "meta": {
+    "cityId": "davao",
+    "usedHeatIndex": false,
+    "temperaturesSource": "weatherapi",
+    "legend": [],
+    "basis": "PAGASA level (air temp) → score = (level−1)/4. Refs: docs/HEAT-RISK-MODEL-BASIS.md"
+  }
+}
+```
+
+**404 when barangay not found:**
+
+```json
+{
+  "error": "Barangay not found",
+  "barangayId": "9999999999",
+  "hint": "Use GET /api/heat/davao/barangays to see all available barangay IDs"
+}
+```
 
 ### GET /api/heat/davao/current
 
