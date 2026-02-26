@@ -8,6 +8,9 @@ import express from "express";
 import { pingSupabase } from "./lib/supabase.js";
 import healthFacilities from "./routes/healthFacilities.js";
 import heat from "./routes/heat.js";
+import openRouteRouter from "./routes/openRoute.js";
+import heatAdvisoryRouter from "./routes/heatAdvisory.js";
+import historicalForecastRoutes from "./routes/historicalForecastRoutes.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -29,6 +32,9 @@ app.get("/", (req, res) => res.redirect(302, "/api"));
 
 app.use("/api", healthFacilities);
 app.use("/api", heat);
+app.use("/api/ors", openRouteRouter);
+app.use("/api/heat-advisory", heatAdvisoryRouter);
+app.use("/api/historical-forecast", historicalForecastRoutes);
 
 app.get("/api", (req, res) => {
   res.json({
@@ -49,6 +55,10 @@ app.get("/api", (req, res) => {
       "GET /api/heat/:cityId/pipeline-report": "Download pipeline report CSV. 404 if none.",
       "POST /api/heat/:cityId/pipeline-report/generate": "Generate pipeline report (heat + facilities, K-Means).",
       "POST /api/heat/:cityId/pipeline-report": "Upload pipeline report CSV (body: text/csv; x-pipeline-report-key if set).",
+      "POST /api/ors/batch-travel-times": "OpenRoute matrix: body { locations: [[lng,lat],...] }, returns durations/distances.",
+      "GET /api/heat-advisory/by-barangay/:id": "Heat Advisory AI: risk + 3 advisories per barangay (Gemini or fallback).",
+      "GET /api/historical-forecast/by-barangay/:id": "Fetch WeatherAPI forecast for barangay (?days=7|14), save to historical_forecasts, return JSON.",
+      "GET /api/historical-forecast/history/:id": "Stored forecast history for barangay from Supabase historical_forecasts table.",
     },
   });
 });

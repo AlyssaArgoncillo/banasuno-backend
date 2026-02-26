@@ -7,6 +7,24 @@
 const WEATHER_API_BASE = "https://api.weatherapi.com/v1";
 const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 
+/** In-memory cache for current weather: key = location query (q), value = { data, ts }. */
+const currentWeatherCache = Object.create(null);
+const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
+
+function getCachedCurrentWeather(q) {
+  const entry = currentWeatherCache[q];
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    delete currentWeatherCache[q];
+    return null;
+  }
+  return entry.data;
+}
+
+function setCachedCurrentWeather(q, data) {
+  currentWeatherCache[q] = { data, ts: Date.now() };
+}
+
 /**
  * Fetch current weather for a location.
  * @param {string} apiKey - WeatherAPI key
@@ -30,6 +48,13 @@ const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
  */
 export async function getCurrentWeather(apiKey, q) {
   if (!apiKey || !q) return null;
+
+  const cached = getCachedCurrentWeather(q);
+  if (cached) {
+    console.log("[weatherService] WeatherAPI current: cache hit", { q });
+    return cached;
+  }
+
   const url = `${WEATHER_API_BASE}/current.json?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}`;
   const res = await fetch(url);
   if (!res.ok) return null;
@@ -37,7 +62,7 @@ export async function getCurrentWeather(apiKey, q) {
   const current = data?.current;
   if (!current || typeof current.temp_c !== "number") return null;
   const location = data?.location;
-  return {
+  const result = {
     temp_c: current.temp_c,
     feelslike_c: current.feelslike_c,
     humidity:
@@ -58,6 +83,9 @@ export async function getCurrentWeather(apiKey, q) {
         }
       : undefined,
   };
+  setCachedCurrentWeather(q, result);
+  console.log("[weatherService] WeatherAPI current: cache miss", { q });
+  return result;
 }
 
 /**
@@ -152,5 +180,43 @@ export async function getForecast(apiKey, q, days = 7) {
         }
       : undefined,
     forecastDay,
+  };
+}
+
+/**
+ * Fetch historical weather for a single date (WeatherAPI history.json).
+ * @param {string} apiKey - WeatherAPI key
+ * @param {string} q - Location: "lat,lon", city name, etc.
+ * @param {string} dt - Date in YYYY-MM-DD (on or after 2010-01-01)
+ * @returns {Promise<{ location?: object, date: string, maxtemp_c?: number, mintemp_c?: number, avgtemp_c?: number, condition?: string, totalprecip_mm?: number } | null>}
+ */
+export async function getHistory(apiKey, q, dt) {
+  if (!apiKey || !q || !dt) return null;
+  const url = `${WEATHER_API_BASE}/history.json?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}&dt=${encodeURIComponent(dt)}`;
+  const res = await fetch(url);
+  if (!res.ok) return null;
+  const data = await res.json();
+  const forecastday = data?.forecast?.forecastday;
+  const dayData = Array.isArray(forecastday) && forecastday.length > 0 ? forecastday[0] : null;
+  if (!dayData) return null;
+  const day = dayData?.day ?? {};
+  const location = data?.location;
+  return {
+    location: location
+      ? {
+          name: location.name,
+          region: location.region,
+          country: location.country,
+          lat: location.lat,
+          lon: location.lon,
+          tz_id: location.tz_id,
+        }
+      : undefined,
+    date: dayData.date ?? dt,
+    maxtemp_c: day.maxtemp_c,
+    mintemp_c: day.mintemp_c,
+    avgtemp_c: day.avgtemp_c,
+    condition: day.condition?.text ?? null,
+    totalprecip_mm: typeof day.totalprecip_mm === "number" ? day.totalprecip_mm : null,
   };
 }

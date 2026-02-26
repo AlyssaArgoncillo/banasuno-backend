@@ -51,6 +51,23 @@ function getBarangayId(feature) {
 }
 
 /**
+ * Get barangay display name by ID from GeoJSON features.
+ * @param {{ features: import('geojson').Feature[] }} geo
+ * @param {string} barangayId
+ * @returns {string}
+ */
+export function getBarangayNameById(geo, barangayId) {
+  if (!geo?.features?.length || !barangayId) return String(barangayId ?? "");
+  const id = String(barangayId).trim();
+  for (const f of geo.features) {
+    if (getBarangayId(f) === id) {
+      return (f.properties?.adm4_en ?? f.properties?.name ?? f.properties?.ADM4_EN ?? id) || id;
+    }
+  }
+  return id;
+}
+
+/**
  * Get list of barangays with only id and centroid (lat, lon). One point per barangay.
  * @param {{ features: import('geojson').Feature[] }} geo
  * @returns {Array<{ barangayId: string, lat: number, lng: number }>}

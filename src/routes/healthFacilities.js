@@ -2,8 +2,10 @@
  * Davao City health facilities API – reads from Supabase (Postgres).
  * Data is in table health_facilities_davao. Seed with: npm run seed:facilities
  */
+import { getDavaoBarangayGeo, getBarangayCentroids } from "../lib/barangays.js";
 
 import { Router } from "express";
+import { getBatchTravelTimes } from "../services/openRoute.js";
 import { getFacilities } from "../lib/store.js";
 import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
 
@@ -81,6 +83,7 @@ router.get("/facilities/by-barangay/:barangayId", async (req, res) => {
         hint: "Use a Davao barangay id (e.g. PSGC adm4_psgc from the heat map GeoJSON)",
       });
     }
+
     res.json({
       barangayId: result.barangayId,
       total: result.total,
