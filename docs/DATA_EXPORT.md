@@ -138,4 +138,4 @@ Enable RLS and add policies as needed (e.g. allow anonymous read for public dash
 
 CSV column names and types in this doc match the Supabase columns so exports can be generated directly from Supabase queries or from in-memory snapshot data in the backend.
 
-**Pipeline storage:** To store the weighted heat risk pipeline’s input and final report in Supabase instead of CSV files in `ai/`, use the tables and flow described in **`docs/PIPELINE-SUPABASE.md`** (`pipeline_barangay_data`, `pipeline_heat_risk_report`).
+For **AI and advisory disclaimers** (assist-only, cross-check with PAGASA and official sources), see **docs/AI-DISCLAIMER.md**.

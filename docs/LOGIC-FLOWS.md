@@ -1,6 +1,6 @@
-# Logic flows – backend and pipeline
+# Logic flows – backend heat data and heat risk
 
-Single place for **step-by-step computation flows**: backend (heat data and heat risk) and pipeline (weighted heat risk CSV). For **validity and verification** see **docs/VALIDITY.md**. For **cited sources** see **docs/CITED-SOURCES.md**.
+Single place for **step-by-step computation flows** for the backend (heat data and heat risk). For **validity and verification** see **docs/VALIDITY.md** (if present). For **cited sources** see **docs/CITED-SOURCES.md** (if present). For **AI and advisory disclaimers** see **docs/AI-DISCLAIMER.md**.
 
 ---
 
@@ -44,23 +44,3 @@ Code: `src/routes/heat.js`, `src/services/heatRiskModel.js`, `src/lib/heatIndex.
 | A | **°C → °F** — Convert air temp to Fahrenheit for the formula. | `heatIndex.js` |
 | B | **If HI &lt; ~80°F** — Simple formula `0.5*{T + 61 + (T−68)*1.2 + RH*0.094}`, then average with T; return result in °C. | Same file |
 | C | **If HI ≥ 80°F** — Full Rothfusz regression (coefficients from NWS SR 90-23); apply low-RH and high-RH adjustments per WPC; convert result to °C. If result out of range, return air temp. | Same file |
-
----
-
-## 2. Pipeline logic flow
-
-Code: `ai/fetch_pipeline_data.py`, `ai/weighted_heat_risk_pipeline.py`. Input CSV filled from backend APIs.
-
-| Step | What happens |
-|------|----------------|
-| 1 | **Load CSV** — `barangay_id`, `date`, `temperature`, `facility_distance`. Filled by `fetch_pipeline_data.py` from backend APIs. |
-| 2 | **Temperature feature** — Single date: `temp_rolling` = `temperature`. Multiple dates: 7‑day rolling mean per barangay. `temperature` = heat index °C when backend provided `heat_index_c`, else air temp °C. |
-| 3 | **Other features** — `facility_score` = `1 / (1 + facility_count)`. |
-| 4 | **Weights** — Two features (temp, facility_score) with equal weights 1/2 each (EWA). |
-| 5 | **Scale** — MinMaxScaler (sklearn): each feature → [0, 1] over the dataset. |
-| 6 | **Cluster** — K‑Means, k = 5, fixed seed (42). Each row gets cluster 0–4. |
-| 7 | **Severity per cluster** — For each cluster, mean of each scaled feature; then severity_score = weighted sum (same EWA weights). |
-| 8 | **Map to PAGASA 1–5** — Rank clusters by severity_score (ascending); lowest → risk_level 1, highest → risk_level 5. |
-| 9 | **Output** — One row per barangay: `barangay_id`, `risk_level`, `cluster`; CSV includes `#` comment block (disclaimer, sources). |
-
-**Data sources:** Temperature/heat index from backend `barangays`; facility count from backend facilities API.

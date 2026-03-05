@@ -1,6 +1,6 @@
 # Disclaimers – What each process does, where it comes from, and validity
 
-This document describes **what each process actually does**, **where the data comes from**, and the **validity and limitations** of outputs. Use these for in-app disclaimers and to cite sources.
+This document describes **what each process actually does**, **where the data comes from**, and the **validity and limitations** of outputs. Use these for in-app disclaimers and to cite sources. For **AI and advisory disclaimers** (assist-only, no guarantees, cross-check with PAGASA and official sources), see **docs/AI-DISCLAIMER.md**.
 
 ---
 
@@ -50,23 +50,10 @@ This document describes **what each process actually does**, **where the data co
 
 ---
 
-## 4. Pipeline heat-risk report (generate and download)
+## 4. AI and advisory disclaimer
 
-**What it does:** Produces a **CSV report** of barangay-level **risk_level** (1–5) and **cluster** from a **weighted pipeline**: temperature (or heat index when available), **facility access** (fewer facilities → higher risk proxy). Uses **K-Means** (k=5) and **equal-weight** combination, then maps clusters to PAGASA-style levels 1–5 by severity rank. This is a **different methodology** from the map’s heat risk: the map uses **validated-only** (heat index or temp → PAGASA → score); the pipeline adds **facilities** for **batch prioritization**.
+**What it does:** Responses and advisories are **generated or assisted by AI** and are intended to **assist** users, not to replace authoritative sources. The system makes **no over-claimed data, no predictions, and no authoritative guarantees**. Users should **always cross-check** with **PAGASA** and other **valid, official sources**. The system ensures validity by **transparency**, avoiding **unsupported claims**, and **clearly labeling** advisory logic. Full text: **docs/AI-DISCLAIMER.md**.
 
-**Where it comes from:**
-- **Temperature / heat index:** Same as barangay heat risk (WeatherAPI; heat index when humidity available).
-- **Facility score:** Backend facilities data (Postgres); score = **1 / (1 + facility_count)** per barangay.
-- **Method:** Equal weight approach (EWA) — 1/2 each for temperature and facility score; MinMaxScaler, K-Means k=5, cluster rank → level 1–5. See **docs/PIPELINE-COMPUTATIONAL-BASIS.md**.
-
-**Validity and limitations:**
-- **Validated (cited):** Temperature when heat index (NOAA Rothfusz); PAGASA level bands; EWA weighting (literature-supported).
-- **Standard / reproducible:** MinMaxScaler, K-Means, cluster→level mapping. **Facility score** 1/(1+n) is a common access proxy, not from a single cited formula.
-- Reports are **for planning and prioritization only**. They are **not** official health or hazard reports and should **not** be used as the sole basis for resource allocation or regulatory decisions. Always combine with official sources and local knowledge.
-
-**Report CSV:** The downloaded/generated report CSV includes an **introduction comment block** at the top (lines starting with `#`): disclaimer, sources, and computation summary. Parsers that skip `#` lines will see only the header and data rows.
-
-**References:** **docs/PIPELINE-COMPUTATIONAL-BASIS.md**, **docs/CITED-SOURCES.md**, **ai/README.md**.
 
 ---
 
@@ -77,7 +64,7 @@ This document describes **what each process actually does**, **where the data co
 | Barangay temperatures| Temp °C per barangay by lat,lon       | WeatherAPI                     | For planning; not official observations |
 | Barangay heat risk   | Level 1–5 + score from temp/heat index| NOAA Rothfusz, PAGASA          | Validated when heat index; for awareness only |
 | Forecast             | 7/14-day forecast for city            | WeatherAPI                     | Third-party; for general planning       |
-| Pipeline report      | CSV risk_level by barangay (temp + facilities) | Same temps, Postgres facilities | EWA + K-Means; for prioritization only; not official |
+| AI / advisory        | Assist-only; cross-check with PAGASA and official sources | See AI-DISCLAIMER.md            | No guarantees; transparency and clear labeling       |
 
 ---
 
@@ -92,4 +79,4 @@ Heat APIs do not return `disclaimer`, `sources`, or `validity` in the response b
 - **Barangay temperatures / heat map** – Use §1 above (barangay temperatures) for source and validity text.
 - **Barangay heat risk** – Use §2 (barangay heat risk); response still includes `basis`, `usedHeatIndex` for context.
 - **Forecast** – Use §3 (forecast).
-- **Pipeline report** – **GET /api/heat/davao/pipeline-report/meta** returns `available`, `updatedAt`; use §4 and **docs/CITED-SOURCES.md** for disclaimer/sources when showing the download section.
+- **AI and advisory** – Use **docs/AI-DISCLAIMER.md** (§4 above) for disclaimer and source text across the app.

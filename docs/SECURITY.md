@@ -1,6 +1,6 @@
 # Security checklist
 
-Quick review of secrets and safe defaults in this repo.
+Quick review of secrets and safe defaults in this repo. For **AI and advisory disclaimers**, see **docs/AI-DISCLAIMER.md**.
 
 ## What we do
 

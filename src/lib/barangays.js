@@ -8,6 +8,12 @@ import { getFeatureCentroid } from "./geo.js";
 const DAVAO_BARANGAYS_URL =
   "https://raw.githubusercontent.com/faeldon/philippines-json-maps/master/2023/geojson/municities/lowres/bgysubmuns-municity-1130700000.0.001.json";
 
+/** Timeout for geo fetch (ms). Slow WiFi may need longer. */
+const GEO_FETCH_TIMEOUT_MS = 30000;
+/** Retries on ECONNRESET / network errors. */
+const GEO_FETCH_RETRIES = 3;
+const GEO_FETCH_RETRY_DELAY_MS = 2000;
+
 let cachedGeo = null;
 
 /**
@@ -19,29 +25,50 @@ export function clearBarangayGeoCache() {
 
 /**
  * Fetch Davao barangay GeoJSON (cached in memory).
+ * Uses timeout and retries to cope with slow/unstable networks (ECONNRESET, fetch failed).
  * @returns {Promise<{ type: string, features: import('geojson').Feature[] }>}
  */
 export async function getDavaoBarangayGeo() {
   if (cachedGeo) return cachedGeo;
-  
-  try {
-    const res = await fetch(DAVAO_BARANGAYS_URL);
-    if (!res.ok) {
-      throw new Error("Failed to load barangay boundaries: " + res.status + " " + res.statusText);
+
+  let lastErr;
+  for (let attempt = 1; attempt <= GEO_FETCH_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), GEO_FETCH_TIMEOUT_MS);
+      const res = await fetch(DAVAO_BARANGAYS_URL, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        throw new Error("Failed to load barangay boundaries: " + res.status + " " + res.statusText);
+      }
+
+      const geo = await res.json();
+
+      if (!geo?.features?.length) {
+        throw new Error("Barangay boundaries returned no features. Check: " + DAVAO_BARANGAYS_URL);
+      }
+
+      cachedGeo = geo;
+      return cachedGeo;
+    } catch (err) {
+      lastErr = err;
+      const isRetryable =
+        err?.name === "AbortError" ||
+        err?.message === "terminated" ||
+        err?.code === "ECONNRESET" ||
+        (err?.cause && (err.cause.code === "ECONNRESET" || err.cause.message === "fetch failed"));
+      if (isRetryable && attempt < GEO_FETCH_RETRIES) {
+        console.warn("[getDavaoBarangayGeo] Attempt", attempt, "failed:", err.message, "- retrying in", GEO_FETCH_RETRY_DELAY_MS, "ms");
+        await new Promise((r) => setTimeout(r, GEO_FETCH_RETRY_DELAY_MS));
+      } else {
+        break;
+      }
     }
-    
-    const geo = await res.json();
-    
-    if (!geo?.features?.length) {
-      throw new Error("Barangay boundaries returned no features. Check: " + DAVAO_BARANGAYS_URL);
-    }
-    
-    cachedGeo = geo;
-    return cachedGeo;
-  } catch (err) {
-    console.error("[getDavaoBarangayGeo] Error:", err.message);
-    throw err;
   }
+
+  console.error("[getDavaoBarangayGeo] Error:", lastErr?.message);
+  throw lastErr;
 }
 
 function getBarangayId(feature) {

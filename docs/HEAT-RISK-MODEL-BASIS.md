@@ -2,7 +2,7 @@
 
 This document provides the **official and scientific basis** for the heat-risk model in `src/services/heatRiskModel.js`: temperature-based risk levels, validated score from PAGASA level only, and related logic.
 
-**User-facing disclaimers (what it does, where it comes from, validity):** See **docs/DISCLAIMERS.md** § 2. The API **GET /api/heat/davao/barangays** returns **meta.basis** and **meta.legend** for in-app display.
+**User-facing disclaimers (what it does, where it comes from, validity):** See **docs/DISCLAIMERS.md** and **docs/AI-DISCLAIMER.md**. The API **GET /api/heat/davao/barangays** returns **meta.basis** and **meta.legend** for in-app display.
 
 ---
 
@@ -49,30 +49,8 @@ Our implementation maps **heat index °C** (when computed from temperature + hum
 
 ---
 
-## 2. Heat health risk in Philippine cities (scientific framework)
 
-For the **conceptual framework** of heat hazard + exposure + vulnerability (used in the **pipeline**; the backend heat-risk API does not use density or delta):
-
-- **Estoque, R.C., Ooba, M., Seposo, X.T., Togawa, T., Hijioka, Y., Takahashi, K., & Nakamura, S.** (2020). Heat health risk assessment in Philippine cities using remotely sensed data and social-ecological indicators. *Nature Communications*, **11**, 1581.  
-  **DOI:** https://doi.org/10.1038/s41467-020-15218-8
-
-This study assesses heat health risk in **139 Philippine cities** using the **IPCC risk framework** (hazard, exposure, vulnerability) with remotely sensed data and social-ecological indicators. It supports combining **heat hazard** (temperature) with **exposure** (e.g. population/urban density) for risk prioritization in Philippine contexts.
-
----
-
-## 3. Population density / exposure (pipeline only; not in backend API)
-
-The **pipeline** (K-Means in `ai/`) uses population density as a feature. Conceptual support:
-
-- **Urban heat island (UHI)** and **exposure**: Denser areas tend to have higher UHI intensity and more people exposed per unit area.
-- **Reid, C.E., O’Neill, M.S., Gronlund, C.J., Brines, S.J., Brown, D.G., Diez-Roux, A.V., & Schwartz, J.** (2009). Mapping community determinants of heat vulnerability. *Environmental Health Perspectives*, **117**(11), 1730–1736.  
-  **DOI:** https://doi.org/10.1289/ehp.0900683
-
-Reid et al. map community-level heat vulnerability; density as exposure/UHI proxy is consistent with Estoque et al. The **backend heat-risk API** does not use or expose density; it returns only validated outputs (score, level, label, temp_c, heat_index_c). The pipeline uses only temperature and facility score (no density). See **docs/CITED-SOURCES.md** §3–4.
-
----
-
-## 4. What is validated vs heuristic
+## 2. What is validated vs heuristic
 
 **Full verification table and primary-source checks:** **docs/VALIDITY.md** §1 (especially §1.4). Summary:
 
@@ -83,11 +61,11 @@ Reid et al. map community-level heat vulnerability; density as exposure/UHI prox
 | **Input to PAGASA when RH available** | **Rothfusz HI (°C)** | Aligns with PAGASA’s definition of heat index (temperature + humidity). |
 | **Risk score** | **Derived from level** | `score = (level − 1) / 4`; only validated level is used. |
 
-**Summary:** The API returns only validated outputs (score, level, label, temp_c, heat_index_c when used). No delta, population, or density. The **score** uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level−1)/4. The API reports `usedHeatIndex: true` when the validated (Rothfusz + PAGASA) path was used.
+**Summary:** The API returns only validated outputs (score, level, label, temp_c, heat_index_c when used). No delta, population, or density. The **score** uses only validated inputs: heat index (or air temp) → PAGASA level → score = (level−1)/4. The API reports `usedHeatIndex: true` when the validated (Rothfusz + PAGASA) path was used. For AI and advisory disclaimers (cross-check with PAGASA and official sources), see **docs/AI-DISCLAIMER.md**.
 
 ---
 
-## 5. Independent verification of computational logic
+## 3. Independent verification of computational logic
 
 The heat index formula and PAGASA category boundaries have been verified **against the primary sources** (NWS WPC equation page and PAGASA heat index pages), not only against this repo’s documentation. Verification includes:
 

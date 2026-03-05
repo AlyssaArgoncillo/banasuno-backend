@@ -2,12 +2,9 @@
  * Davao City health facilities API – reads from Supabase (Postgres).
  * Data is in table health_facilities_davao. Seed with: npm run seed:facilities
  */
-import { getDavaoBarangayGeo, getBarangayCentroids } from "../lib/barangays.js";
-
 import { Router } from "express";
-import { getBatchTravelTimes } from "../services/openRoute.js";
 import { getFacilities } from "../lib/store.js";
-import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
+import { assessFacilitiesInBarangay, getNearestFacilitiesForBarangay } from "../services/facilitiesByBarangay.js";
 
 const router = Router();
 
@@ -45,7 +42,7 @@ router.get("/facilities", async (req, res) => {
   }
 });
 
-/** POST /api/facilities/counts-by-barangays – batch facility counts for many barangays (e.g. for AI pipeline). Body: { "barangayIds": ["id1", "id2", ...] }. Response: { "counts": { "id1": 3, "id2": 0, ... } }. */
+/** POST /api/facilities/counts-by-barangays – batch facility counts for many barangays (All Barangays table). Uses straight-line only (skipOrs) to avoid OpenRoute 429. Body: { "barangayIds": ["id1", "id2", ...] }. Response: { "counts": { "id1": 3, "id2": 0, ... } }. */
 router.post("/facilities/counts-by-barangays", async (req, res) => {
   try {
     const ids = req.body?.barangayIds;
@@ -57,7 +54,7 @@ router.post("/facilities/counts-by-barangays", async (req, res) => {
     for (const barangayId of ids) {
       const bid = String(barangayId ?? "").trim();
       if (!bid) continue;
-      const result = await assessFacilitiesInBarangay(bid, facilities);
+      const result = await assessFacilitiesInBarangay(bid, facilities, { skipOrs: true });
       counts[bid] = result.found ? result.total : 0;
     }
     return res.json({ counts });
@@ -67,7 +64,7 @@ router.post("/facilities/counts-by-barangays", async (req, res) => {
   }
 });
 
-/** GET /api/facilities/by-barangay/:barangayId – must be before /facilities/:id so "by-barangay" is not matched as id */
+/** GET /api/facilities/by-barangay/:barangayId – must be before /facilities/:id so "by-barangay" is not matched as id. Uses same logic as counts-by-barangays (skipOrs: true) so count and list match. */
 router.get("/facilities/by-barangay/:barangayId", async (req, res) => {
   try {
     const barangayId = req.params.barangayId?.trim();
@@ -75,7 +72,7 @@ router.get("/facilities/by-barangay/:barangayId", async (req, res) => {
       return res.status(400).json({ error: "barangayId required" });
     }
     const facilities = await getFacilities();
-    const result = await assessFacilitiesInBarangay(barangayId, facilities);
+    const result = await assessFacilitiesInBarangay(barangayId, facilities, { skipOrs: true });
     if (!result.found) {
       return res.status(404).json({
         error: "Barangay not found",
@@ -84,10 +81,22 @@ router.get("/facilities/by-barangay/:barangayId", async (req, res) => {
       });
     }
 
+    let facilitiesList = result.facilities;
+    let fallbackNearest = false;
+    if (result.total === 0 && Array.isArray(facilities) && facilities.length > 0) {
+      const nearest = await getNearestFacilitiesForBarangay(barangayId, facilities, { limit: 10 });
+      facilitiesList = nearest.facilities;
+      fallbackNearest = nearest.fallbackNearest === true;
+    }
+
+    const total = facilitiesList.length;
+    const total_label = total === 1 ? "1 facility" : `${total} facilities`;
     res.json({
       barangayId: result.barangayId,
-      total: result.total,
-      facilities: result.facilities,
+      total,
+      total_label,
+      facilities: facilitiesList,
+      ...(fallbackNearest ? { fallback_nearest: true, message: "No facilities in this barangay; showing nearest with distance_meters." } : {}),
     });
   } catch (err) {
     console.error(err);

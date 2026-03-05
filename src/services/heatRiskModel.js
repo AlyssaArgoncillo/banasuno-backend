@@ -30,7 +30,7 @@ export const HEAT_LEVELS = [
  * Map air temperature (°C) to PAGASA category and a normalized score [0, 1].
  * Bands: <27, 27–32, 33–41, 42–51, ≥52.
  */
-function tempToPAGASALevel(tempC) {
+export function tempToPAGASALevel(tempC) {
   const t = tempC;
   if (t < 27) return { level: 1, label: "Not Hazardous", score: 0.1 };
   if (t <= 32) return { level: 2, label: "Caution", score: 0.2 + ((t - 27) / 5) * 0.2 };

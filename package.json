@@ -10,7 +10,9 @@
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
     "seed:facilities": "node scripts/seed-health-facilities.js",
-    "test:supabase-push": "node scripts/test-supabase-push.js"
+    "test:supabase-push": "node scripts/test-supabase-push.js",
+    "heat-risk-job": "node src/jobs/heatRiskJob.js",
+    "heat-risk-job:schedule": "node src/jobs/heatRiskJob.js --schedule"
   },
   "dependencies": {
     "@google/genai": "^1.42.0",

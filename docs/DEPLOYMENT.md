@@ -52,7 +52,7 @@ This repo is set up for Vercel: the Express app is exported from `src/index.js` 
 
 **If the build fails with a "local DOM" or DOMException-related error:** Set the Node version to 18+. In the Vercel project go to **Settings → General → Node.js Version** and choose **18.x** or **20.x**, or add environment variable **NODE_VERSION** = `18` (or `20`). The repo’s `package.json` specifies `"engines": { "node": ">=18" }` so Vercel should use Node 18+ automatically; if not, set it explicitly.
 
-Before the first deploy, run the migration SQL in **`supabase/migrations/20250220000000_app_store_tables.sql`** in the Supabase SQL Editor so the `health_facilities_davao` and `pipeline_report` tables exist. Then seed facilities with `npm run seed:facilities` locally (pointing at the same Supabase project) or via a one-off script.
+Before the first deploy, run the migration SQL in **`supabase/migrations/20250220000000_app_store_tables.sql`** in the Supabase SQL Editor so the `health_facilities_davao` and report storage tables exist. Then seed facilities with `npm run seed:facilities` locally (pointing at the same Supabase project) or via a one-off script.
 
 Optional: **WEATHER_API_KEY** for heat/forecast; see `.env.example`.
 

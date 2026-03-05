@@ -7,7 +7,7 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 ## 1. Heat risk model (PAGASA)
 
 **File:** `src/services/heatRiskModel.js`  
-**Model basis and references:** See **docs/HEAT-RISK-MODEL-BASIS.md** (NOAA Rothfusz, PAGASA). Estoque and Reid are cited for the pipeline and conceptual context only (**docs/CITED-SOURCES.md** §3–4); the backend score uses only validated level.
+**Model basis and references:** See **docs/HEAT-RISK-MODEL-BASIS.md** (NOAA Rothfusz, PAGASA). The backend score uses only validated level. For AI and advisory disclaimers see **docs/AI-DISCLAIMER.md**.
 
 | What | Where | Formula / logic |
 |------|--------|------------------|
@@ -93,7 +93,7 @@ A reference to **business logic, formulas, and numeric/conditional computations*
 
 **File:** `src/lib/store.js`
 
-Facilities and pipeline report are stored in Postgres via Supabase (tables `health_facilities_davao`, `pipeline_report`). See `supabase/migrations/20250220000000_app_store_tables.sql`.
+Facilities and report storage are in Postgres via Supabase (tables `health_facilities_davao`, `pipeline_report`). See `supabase/migrations/20250220000000_app_store_tables.sql`.
 
 ---
 
@@ -103,4 +103,4 @@ Facilities and pipeline report are stored in Postgres via Supabase (tables `heal
 - **Geometry:** Centroid (mean of ring vertices); point-in-polygon (ray-casting) (`geo.js`).
 - **Assignment:** Squared distance; nearest-barangay; facility–barangay assignment (`facilitiesByBarangay.js`, `barangays.js`).
 - **Aggregation:** Min/max/average of temps; pagination offset/limit; forecast day clamping (`heat.js`, `healthFacilities.js`, `weatherService.js`).
-- **Infrastructure:** Cache TTL; concurrency cap; store (Supabase) for facilities and pipeline report (`store.js`, `heat.js`).
+- **Infrastructure:** Cache TTL; concurrency cap; store (Supabase) for facilities and report (`store.js`, `heat.js`).

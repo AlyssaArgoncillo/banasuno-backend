@@ -10,7 +10,11 @@ import healthFacilities from "./routes/healthFacilities.js";
 import heat from "./routes/heat.js";
 import openRouteRouter from "./routes/openRoute.js";
 import heatAdvisoryRouter from "./routes/heatAdvisory.js";
-import historicalForecastRoutes from "./routes/historicalForecastRoutes.js";
+import historicalTrendsRoutes from "./routes/historicalTrendsRoutes.js";
+import heatRiskCountsRoutes from "./routes/heatRiskCountsRoutes.js";
+import cityTemperaturesRoutes from "./routes/cityTemperaturesRoutes.js";
+import historicalHeatRiskCountsRouter from "./routes/historicalHeatRiskCounts.js";
+import historicalCityTemperaturesRouter from "./routes/historicalCityTemperatures.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -34,18 +38,27 @@ app.use("/api", healthFacilities);
 app.use("/api", heat);
 app.use("/api/ors", openRouteRouter);
 app.use("/api/heat-advisory", heatAdvisoryRouter);
-app.use("/api/historical-forecast", historicalForecastRoutes);
+app.use("/api/historical-trends", historicalTrendsRoutes);
+app.use("/api/heat-risk-counts", heatRiskCountsRoutes);
+app.use("/api/city-temperatures", cityTemperaturesRoutes);
+app.use("/api/historical/heat-risk-counts", historicalHeatRiskCountsRouter);
+app.use("/api/historical/city-temperatures", historicalCityTemperaturesRouter);
 
 app.get("/api", (req, res) => {
   res.json({
     name: "BanasUno Backend",
     version: "1.0",
+    dashboard_api_contract: "See docs/FRONTEND-DASHBOARD-API.md for which endpoints to use for KPI strip, health facility directory (chosen place only), and historical trends (do not use forecast).",
     endpoints: {
       "GET /api/facilities": "List Davao health facilities (query: type, source, ownership, name, limit, offset)",
       "GET /api/facilities/:id": "Get one facility by id",
-      "GET /api/facilities/by-barangay/:barangayId": "Facilities assigned to barangay by nearest barangay lat/lon only",
-      "POST /api/facilities/counts-by-barangays": "Batch facility counts for many barangay IDs (body: { barangayIds: [] }, for AI pipeline)",
+      "GET /api/facilities/by-barangay/:barangayId": "Facilities for the chosen place only (one barangay). Use for health facility directory; do not use GET /api/facilities (all places).",
+      "POST /api/facilities/counts-by-barangays": "All Barangays table: batch facility counts. Body { barangayIds: string[] }, response { counts: Record<string,number> }.",
       "GET /api/types": "Facility type summary",
+      "GET /api/heat/counts": "KPI strip: heat risk zone counts by risk_level/risk_label for today (heat_risk_counts table).",
+      "GET /api/heat/summary": "Heat summary: risk_counts + city_avg_temp. Optional ?city_id=, ?format=rows for unified array.",
+      "GET /api/heat/summary/csv": "Heat summary as CSV (city_id, recorded_at, risk_level, risk_label, total, avg_temp_c). Optional ?city_id=.",
+      "GET /api/heat/export/city": "KPI strip Export CSV: city heat/risk for date. ?date=YYYY-MM-DD&city_id=davao. Filename: heat_risk_city_avg_YYYY-MM-DD.csv.",
       "GET /api/heat/:cityId/barangays": "Per-barangay temp + risk + lat/lng + area. Optional ?limit=.",
       "GET /api/heat/:cityId/barangays/:barangayId": "Get heat data for a specific barangay by ID (PSGC code).",
       "GET /api/heat/:cityId/current": "City center current weather (temp, feels-like). WeatherAPI.",
@@ -55,10 +68,24 @@ app.get("/api", (req, res) => {
       "GET /api/heat/:cityId/pipeline-report": "Download pipeline report CSV. 404 if none.",
       "POST /api/heat/:cityId/pipeline-report/generate": "Generate pipeline report (heat + facilities, K-Means).",
       "POST /api/heat/:cityId/pipeline-report": "Upload pipeline report CSV (body: text/csv; x-pipeline-report-key if set).",
-      "POST /api/ors/batch-travel-times": "OpenRoute matrix: body { locations: [[lng,lat],...] }, returns durations/distances.",
+      "POST /api/ors/batch-travel-times": "Body { barangayIds: string[], facilities: [{ id, lon, lat }] }. Returns results + summary.nearest_per_barangay (ORS matrix).",
+      "POST /api/ors/directions": "Body { start: [lng,lat]|{lng,lat}, end: [lng,lat]|{lng,lat}, profile?: driving-car|foot-walking|cycling-regular }. Returns ORS Directions GeoJSON (route geometry + summary) for Show Route.",
       "GET /api/heat-advisory/by-barangay/:id": "Heat Advisory AI: risk + 3 advisories per barangay (Gemini or fallback).",
-      "GET /api/historical-forecast/by-barangay/:id": "Fetch WeatherAPI forecast for barangay (?days=7|14), save to historical_forecasts, return JSON.",
-      "GET /api/historical-forecast/history/:id": "Stored forecast history for barangay from Supabase historical_forecasts table.",
+      "POST /api/heat-advisory": "Heat Advisory UI: tagline + 3 advices (title/body). Body: barangay_id?, barangay_name?, risk_level?, risk_label?, temperature_c? (Gemini or fallback).",
+      "GET /api/heat-advisory": "Same as POST with query params. Optional caching by barangay + risk_level.",
+      "GET /api/historical-trends": "Historical trends row: past temps only. ?city_id=, ?days=7|14 or ?limit=, ?sync=1. Do not use forecast here.",
+      "GET /api/historical-trends/export": "Historical Trends Export CSV. ?city_id=, ?days=7|14, ?date=YYYY-MM-DD (filename). Filename: historical_trends_YYYY-MM-DD.csv.",
+      "POST /api/historical-trends/sync": "Sync city historical trends from WeatherAPI history.json and run 30-day cleanup.",
+      "POST /api/heat-risk-counts": "Insert barangay-level heat risk record (barangay_psgc, city_id, risk_level, risk_label, etc.).",
+      "GET /api/heat-risk-counts": "Fetch heat_risk_counts rows. ?city_id=, ?limit=.",
+      "POST /api/heat-risk-counts/cleanup": "Run 7-day retention cleanup on heat_risk_counts.",
+      "POST /api/city-temperatures": "Insert city-level temperature (city_id, avg_temp_c, source?, recorded_at?).",
+      "GET /api/city-temperatures": "Fetch city_temperatures rows. ?city_id=, ?limit=.",
+      "POST /api/city-temperatures/cleanup": "Run 7-day retention cleanup on city_temperatures.",
+      "POST /api/historical/heat-risk-counts": "Upsert into historical_heat_risk_counts (same body as daily).",
+      "GET /api/historical/heat-risk-counts": "Fetch historical_heat_risk_counts. ?city_id=, ?limit=, ?offset=.",
+      "POST /api/historical/city-temperatures": "Upsert into historical_city_temperatures (same body as daily).",
+      "GET /api/historical/city-temperatures": "Fetch historical_city_temperatures. ?city_id=, ?limit=, ?offset=.",
     },
   });
 });

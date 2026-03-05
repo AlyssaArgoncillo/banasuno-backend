@@ -20,7 +20,15 @@ import {
   setPipelineReport,
 } from "../lib/store.js";
 import { assessFacilitiesInBarangay } from "../services/facilitiesByBarangay.js";
-import { runPipelineReport } from "../services/pipelineReportGenerator.js";
+import { tempToPAGASALevel } from "../services/heatRiskModel.js";
+import {
+  getHeatRiskCountsForToday,
+  getHeatSummary,
+  getHeatSummaryRows,
+  getHeatSummaryRowsForDate,
+  getHeatRiskCountsForTodayByBarangay,
+} from "../services/heatRiskCounts.js";
+import { HEAT_LEVELS } from "../services/heatRiskModel.js";
 
 /** Davao City center for WeatherAPI average temp (lat, lon) */
 const DAVAO_CENTER = "7.1907,125.4553";
@@ -133,6 +141,127 @@ async function runWithConcurrency(items, fn) {
 }
 
 /**
+ * GET /api/heat/counts
+ * Returns counts from heat_risk_counts grouped by risk_level and risk_label for today (UTC).
+ */
+router.get("/heat/counts", async (req, res) => {
+  try {
+    const counts = await getHeatRiskCountsForToday();
+    return res.json(counts);
+  } catch (err) {
+    console.error("[Supabase] GET /heat/counts error:", err);
+    return res.status(500).json({ error: "Failed to load heat risk counts" });
+  }
+});
+
+/**
+ * GET /api/heat/summary
+ * Returns today's city average temperature and aggregated risk counts from Supabase (city_temperatures + heat_risk_counts).
+ * Optional ?format=rows for unified array. No placeholder data — values from WeatherAPI sync.
+ */
+router.get("/heat/summary", async (req, res) => {
+  const cityId = (req.query.city_id || "davao").toString().trim().toLowerCase() || "davao";
+  const format = (req.query.format || "").toString().toLowerCase();
+  try {
+    const summary = await getHeatSummary(cityId, { format: format === "rows" ? "rows" : "default" });
+    if (format === "rows") {
+      return res.json(summary);
+    }
+    return res.json({
+      city_id: cityId,
+      city_avg_temp_c: summary.city_avg_temp?.avg_temp_c ?? null,
+      recorded_at: summary.city_avg_temp?.recorded_at ?? null,
+      risk_counts: summary.risk_counts ?? [],
+      city_avg_temp: summary.city_avg_temp,
+    });
+  } catch (err) {
+    console.error("[Supabase] GET /heat/summary error:", err?.message ?? err);
+    return res.status(500).json({ error: "Failed to load heat summary" });
+  }
+});
+
+/** Escape a CSV field (quote if contains comma, newline or double-quote). */
+function csvEscape(val) {
+  if (val == null) return "";
+  const s = String(val);
+  if (/[,"\r\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+  return s;
+}
+
+/**
+ * GET /api/heat/summary/csv
+ * Returns heat summary as CSV: city_id, recorded_at, risk_level, risk_label, total, avg_temp_c.
+ */
+router.get("/heat/summary/csv", async (req, res) => {
+  const cityId = (req.query.city_id || "davao").toString().trim().toLowerCase() || "davao";
+  try {
+    const rows = await getHeatSummaryRows(cityId);
+    const header = ["city_id", "recorded_at", "risk_level", "risk_label", "total", "avg_temp_c"];
+    const lines = [header.join(",")];
+    for (const row of rows) {
+      lines.push(
+        [
+          csvEscape(row.city_id),
+          csvEscape(row.recorded_at),
+          csvEscape(row.risk_level),
+          csvEscape(row.risk_label),
+          csvEscape(row.total),
+          csvEscape(row.avg_temp_c),
+        ].join(",")
+      );
+    }
+    res.set("Content-Type", "text/csv; charset=utf-8");
+    res.set("Content-Disposition", 'attachment; filename="heat-summary.csv"');
+    return res.send(lines.join("\r\n"));
+  } catch (err) {
+    console.error("[Supabase] GET /heat/summary/csv error:", err?.message ?? err);
+    return res.status(500).json({ error: "Failed to load heat summary CSV" });
+  }
+});
+
+/**
+ * GET /api/heat/export/city
+ * KPI strip Export CSV: city heat / risk counts for a given date.
+ * Query: date=YYYY-MM-DD (optional, default today UTC), city_id=davao (optional).
+ * Response: CSV attachment heat_risk_city_avg_YYYY-MM-DD.csv
+ */
+router.get("/heat/export/city", async (req, res) => {
+  const cityId = (req.query.city_id || "davao").toString().trim().toLowerCase() || "davao";
+  let dateStr = (req.query.date || "").toString().trim();
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const now = new Date();
+    dateStr = [
+      now.getUTCFullYear(),
+      String(now.getUTCMonth() + 1).padStart(2, "0"),
+      String(now.getUTCDate()).padStart(2, "0"),
+    ].join("-");
+  }
+  try {
+    const rows = await getHeatSummaryRowsForDate(cityId, dateStr);
+    const header = ["city_id", "recorded_at", "risk_level", "risk_label", "total", "avg_temp_c"];
+    const lines = [header.join(",")];
+    for (const row of rows) {
+      lines.push(
+        [
+          csvEscape(row.city_id),
+          csvEscape(row.recorded_at),
+          csvEscape(row.risk_level),
+          csvEscape(row.risk_label),
+          csvEscape(row.total),
+          csvEscape(row.avg_temp_c),
+        ].join(",")
+      );
+    }
+    res.set("Content-Type", "text/csv; charset=utf-8");
+    res.set("Content-Disposition", `attachment; filename="heat_risk_city_avg_${dateStr}.csv"`);
+    return res.send(lines.join("\r\n"));
+  } catch (err) {
+    console.error("[Supabase] GET /heat/export/city error:", err?.message ?? err);
+    return res.status(500).json({ error: "Failed to export city heat CSV" });
+  }
+});
+
+/**
  * GET /api/heat/:cityId/barangay-population
  * Returns { [barangayId]: { population, density } } for pipeline (PSA census + GeoJSON area).
  */
@@ -198,6 +327,111 @@ router.get("/heat/:cityId/pipeline-report", async (req, res) => {
     return res.status(500).json({ error: "Failed to load pipeline report" });
   }
 });
+
+/**
+ * Inline pipeline report: MinMaxScale + K-Means k=5, rank clusters → risk_level 1–5. Output CSV.
+ * @param {Array<{ barangay_id: string, temp: number, facility_score: number }>} rows
+ * @returns {string} CSV content
+ */
+function runPipelineReport(rows) {
+  if (rows.length === 0) return "barangay_id,risk_level,cluster\n";
+  const weights = [0.5, 0.5];
+  const matrix = rows.map((r) => [r.temp, r.facility_score]);
+  const cols = matrix[0].length;
+  const mins = [];
+  const maxs = [];
+  for (let c = 0; c < cols; c++) {
+    let min = matrix[0][c];
+    let max = matrix[0][c];
+    for (let r = 1; r < matrix.length; r++) {
+      const v = matrix[r][c];
+      if (v < min) min = v;
+      if (v > max) max = v;
+    }
+    mins.push(min);
+    maxs.push(max);
+  }
+  const scaled = matrix.map((row) =>
+    row.map((v, c) => {
+      const range = maxs[c] - mins[c];
+      return range === 0 ? 0 : (v - mins[c]) / range;
+    })
+  );
+  const k = 5;
+  const n = scaled.length;
+  const dim = scaled[0].length;
+  const mulberry32 = (seed) => () => {
+    let t = (seed += 0x6d2b79f5);
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const rng = mulberry32(42);
+  const indices = Array.from({ length: n }, (_, i) => i);
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  let centroids = indices.slice(0, k).map((i) => [...scaled[i]]);
+  let assignments = new Array(n).fill(0);
+  const distSq = (a, b) => a.reduce((s, v, i) => s + (v - b[i]) ** 2, 0);
+  for (let iter = 0; iter < 100; iter++) {
+    const next = new Array(n);
+    for (let i = 0; i < n; i++) {
+      let best = 0;
+      let bestD = distSq(scaled[i], centroids[0]);
+      for (let j = 1; j < k; j++) {
+        const d = distSq(scaled[i], centroids[j]);
+        if (d < bestD) {
+          bestD = d;
+          best = j;
+        }
+      }
+      next[i] = best;
+    }
+    let changed = false;
+    for (let i = 0; i < n; i++) {
+      if (next[i] !== assignments[i]) changed = true;
+      assignments[i] = next[i];
+    }
+    if (!changed) break;
+    const sums = Array.from({ length: k }, () => new Array(dim).fill(0));
+    const counts = new Array(k).fill(0);
+    for (let i = 0; i < n; i++) {
+      const c = assignments[i];
+      counts[c]++;
+      for (let d = 0; d < dim; d++) sums[c][d] += scaled[i][d];
+    }
+    for (let j = 0; j < k; j++) {
+      if (counts[j] > 0) {
+        for (let d = 0; d < dim; d++) centroids[j][d] = sums[j][d] / counts[j];
+      }
+    }
+  }
+  const clusterToMean = {};
+  for (let i = 0; i < n; i++) {
+    const c = assignments[i];
+    if (!clusterToMean[c]) clusterToMean[c] = { sum: 0, n: 0 };
+    const severity = scaled[i].reduce((s, v, j) => s + v * weights[j], 0);
+    clusterToMean[c].sum += severity;
+    clusterToMean[c].n += 1;
+  }
+  const clusterMeans = Object.keys(clusterToMean).map(Number).map((c) => ({
+    cluster: c,
+    mean: clusterToMean[c].n ? clusterToMean[c].sum / clusterToMean[c].n : 0,
+  }));
+  clusterMeans.sort((a, b) => a.mean - b.mean);
+  const clusterToLevel = {};
+  clusterMeans.forEach(({ cluster }, idx) => {
+    clusterToLevel[cluster] = idx + 1;
+  });
+  const lines = ["barangay_id,risk_level,cluster"];
+  for (let i = 0; i < n; i++) {
+    const level = clusterToLevel[assignments[i]] ?? 1;
+    lines.push(`${rows[i].barangay_id},${level},${assignments[i]}`);
+  }
+  return lines.join("\n") + "\n";
+}
 
 /**
  * POST /api/heat/:cityId/pipeline-report/generate
@@ -309,56 +543,121 @@ router.post(
 
 /**
  * GET /api/heat/:cityId/barangays
- * Single barangay heat endpoint: temp + risk + lat/lng + area per barangay.
- * Use for map, exports, or pipeline. Optional ?limit=N.
+ * Per-barangay temperature, risk level, and risk label; IDs match GeoJSON PSGC codes.
+ * Prefers Supabase heat_risk_counts when today's data exists; otherwise uses live WeatherAPI/Open-Meteo.
+ * Includes meta.temperature_min_c and meta.temperature_max_c for the temperature legend.
  */
 router.get("/heat/:cityId/barangays", async (req, res) => {
   const ctx = requireHeatContext(req);
   if (!ctx.ok) return res.status(ctx.status).json(ctx.json);
 
   try {
-    const { geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, ctx.limit, ctx.provider);
+    const geo = await getDavaoBarangayGeo();
     const withArea = getBarangayCentroidsWithArea(geo);
     const byId = new Map(withArea.map((b) => [b.barangayId, b]));
 
-    const barangays = [];
-    for (const [barangayId] of Object.entries(tempsData.temperatures)) {
-      const risk = assessment.risks[barangayId];
-      const geoRow = byId.get(barangayId);
-      if (!risk || !geoRow) continue;
-      barangays.push({
-        barangay_id: barangayId,
-        temp_c: risk.temp_c,
-        risk: {
-          score: risk.score,
-          level: risk.level,
-          label: risk.label,
-          ...(risk.heat_index_c != null ? { heat_index_c: risk.heat_index_c } : {}),
-        },
-        lat: geoRow.lat,
-        lng: geoRow.lng,
-        area_km2: geoRow.area_km2,
-      });
-    }
+    const dbRows = await getHeatRiskCountsForTodayByBarangay(ctx.cityId);
+    const useSupabase = dbRows.length >= 10;
 
-    return res.json({
-      barangays,
-      updatedAt: new Date().toISOString(),
-      meta: {
+    let barangays;
+    let meta;
+    let updatedAt = new Date().toISOString();
+
+    if (useSupabase) {
+      const tempValues = dbRows.map((r) => r.heat_index_c).filter((v) => typeof v === "number");
+      const temperature_min_c = tempValues.length ? Math.round(Math.min(...tempValues) * 10) / 10 : null;
+      const temperature_max_c = tempValues.length ? Math.round(Math.max(...tempValues) * 10) / 10 : null;
+      barangays = dbRows
+        .map((r) => {
+          const geoRow = byId.get(r.barangay_psgc);
+          if (!geoRow) return null;
+          const temp = typeof r.heat_index_c === "number" ? r.heat_index_c : null;
+          const level = r.risk_level ?? 1;
+          const pagasa =
+            temp != null
+              ? tempToPAGASALevel(temp)
+              : { level, label: r.risk_label ?? "Not Hazardous", score: (level - 1) / 4 };
+          const score = pagasa.score;
+          return {
+            barangay_id: r.barangay_psgc,
+            temp_c: temp,
+            temperature_c: temp,
+            risk_level: pagasa.level,
+            risk_label: pagasa.label,
+            risk: {
+              score: Math.round(score * 10) / 10,
+              level: pagasa.level,
+              label: pagasa.label,
+              ...(temp != null ? { heat_index_c: temp } : {}),
+            },
+            lat: geoRow.lat,
+            lng: geoRow.lng,
+            area_km2: geoRow.area_km2,
+          };
+        })
+        .filter(Boolean);
+      meta = {
         cityId: ctx.cityId,
         count: barangays.length,
+        dataSource: "supabase",
+        temperaturesSource: "heat_risk_counts",
+        legend: HEAT_LEVELS,
+        temperature_min_c: temperature_min_c ?? null,
+        temperature_max_c: temperature_max_c ?? null,
+      };
+    } else {
+      const { geo: _geo, tempsData, assessment } = await getBarangayHeatData(ctx.apiKey, ctx.limit, ctx.provider);
+      const tempValues = Object.values(tempsData.temperatures).filter((v) => typeof v === "number");
+      const temperature_min_c = tempValues.length ? Math.round(Math.min(...tempValues) * 10) / 10 : null;
+      const temperature_max_c = tempValues.length ? Math.round(Math.max(...tempValues) * 10) / 10 : null;
+      barangays = [];
+      for (const [barangayId] of Object.entries(tempsData.temperatures)) {
+        const risk = assessment.risks[barangayId];
+        const geoRow = byId.get(barangayId);
+        if (!risk || !geoRow) continue;
+        barangays.push({
+          barangay_id: barangayId,
+          temp_c: risk.temp_c,
+          temperature_c: risk.temp_c,
+          risk_level: risk.level,
+          risk_label: risk.label,
+          risk: {
+            score: risk.score,
+            level: risk.level,
+            label: risk.label,
+            ...(risk.heat_index_c != null ? { heat_index_c: risk.heat_index_c } : {}),
+          },
+          lat: geoRow.lat,
+          lng: geoRow.lng,
+          area_km2: geoRow.area_km2,
+        });
+      }
+      meta = {
+        cityId: ctx.cityId,
+        count: barangays.length,
+        dataSource: "live",
         usedHeatIndex: assessment.usedHeatIndex,
         temperaturesSource: temperaturesSourceLabel(ctx.provider),
         legend: assessment.legend,
         basis: assessment.basis,
-      },
+        temperature_min_c,
+        temperature_max_c,
+      };
+    }
+
+    return res.json({
+      barangays,
+      updatedAt,
+      meta,
+      min: meta.temperature_min_c ?? null,
+      max: meta.temperature_max_c ?? null,
     });
   } catch (err) {
     console.error("Barangays API error:", err);
-    return res.status(500).json({ 
+    return res.status(500).json({
       error: "Failed to fetch barangay heat data",
       details: err.message,
-      stack: process.env.NODE_ENV === 'development' ? err.stack : undefined
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined,
     });
   }
 });
@@ -396,6 +695,9 @@ router.get("/heat/:cityId/barangays/:barangayId", async (req, res) => {
     const barangay = {
       barangay_id: barangayId,
       temp_c: risk.temp_c,
+      temperature_c: risk.temp_c,
+      risk_level: risk.level,
+      risk_label: risk.label,
       risk: {
         score: risk.score,
         level: risk.level,
@@ -470,7 +772,8 @@ router.get("/heat/:cityId/current", async (req, res) => {
 
 /**
  * GET /api/heat/:cityId/forecast
- * Returns 7- or 14-day forecast (historical trend) from WeatherAPI for the city center.
+ * Returns 7- or 14-day future forecast from WeatherAPI for the city center.
+ * For past historical trends (7d/14d rolling averages), use GET /api/historical-trends instead.
  * Query: ?days=7 (default) or ?days=14.
  * Requires WEATHER_API_KEY.
  */

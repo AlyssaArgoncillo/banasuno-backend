@@ -124,7 +124,7 @@ export async function getOpenMeteoCurrent(lat, lon, timezone = "Asia/Singapore")
 }
 
 /**
- * Fetch 7- or 14-day forecast (historical trend) for a location.
+ * Fetch 7- or 14-day future forecast for a location.
  * Uses WeatherAPI forecast endpoint (days=1–14).
  * @param {string} apiKey - WeatherAPI key
  * @param {string} q - Location: "lat,lon", city name, etc.
