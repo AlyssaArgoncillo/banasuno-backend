@@ -12,7 +12,10 @@
     "seed:facilities": "node scripts/seed-health-facilities.js",
     "test:supabase-push": "node scripts/test-supabase-push.js",
     "heat-risk-job": "node src/jobs/heatRiskJob.js",
-    "heat-risk-job:schedule": "node src/jobs/heatRiskJob.js --schedule"
+    "heat-risk-job:schedule": "node src/jobs/heatRiskJob.js --schedule",
+    "sms:preview": "node src/jobs/sendHeatSms.js",
+    "sms:send": "node src/jobs/sendHeatSms.js --send",
+    "sms:demo": "node src/jobs/sendDemoSms.js"
   },
   "dependencies": {
     "@google/genai": "^1.42.0",

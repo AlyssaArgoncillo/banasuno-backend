@@ -15,6 +15,8 @@ import heatRiskCountsRoutes from "./routes/heatRiskCountsRoutes.js";
 import cityTemperaturesRoutes from "./routes/cityTemperaturesRoutes.js";
 import historicalHeatRiskCountsRouter from "./routes/historicalHeatRiskCounts.js";
 import historicalCityTemperaturesRouter from "./routes/historicalCityTemperatures.js";
+import smsRouter from "./routes/smsRoutes.js";
+import { runHeatRiskJob } from "./jobs/heatRiskJob.js";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,7 +29,7 @@ app.use(express.json());
 app.use((req, res, next) => {
   res.set("Access-Control-Allow-Origin", corsOrigin);
   res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, x-pipeline-report-key");
+  res.set("Access-Control-Allow-Headers", "Content-Type, x-pipeline-report-key, x-sms-admin-key");
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
@@ -43,6 +45,7 @@ app.use("/api/heat-risk-counts", heatRiskCountsRoutes);
 app.use("/api/city-temperatures", cityTemperaturesRoutes);
 app.use("/api/historical/heat-risk-counts", historicalHeatRiskCountsRouter);
 app.use("/api/historical/city-temperatures", historicalCityTemperaturesRouter);
+app.use("/api/sms", smsRouter);
 
 app.get("/api", (req, res) => {
   res.json({
@@ -86,6 +89,11 @@ app.get("/api", (req, res) => {
       "GET /api/historical/heat-risk-counts": "Fetch historical_heat_risk_counts. ?city_id=, ?limit=, ?offset=.",
       "POST /api/historical/city-temperatures": "Upsert into historical_city_temperatures (same body as daily).",
       "GET /api/historical/city-temperatures": "Fetch historical_city_temperatures. ?city_id=, ?limit=, ?offset=.",
+      "GET /api/sms/recipients": "Davao heat-SMS numbers from the partner list. Header x-sms-admin-key.",
+      "POST /api/sms/recipients": "Add partner mobile numbers. Body: { phone } or { phones: string[], source? }.",
+      "POST /api/sms/recipients/deactivate": "Stop texting a number. Body: { phone }.",
+      "GET /api/sms/alerts/preview": "Build the hottest-barangay SMS from the latest heat risk. Does not send.",
+      "POST /api/sms/alerts/send": "Send that SMS to active Davao numbers. Body: { force?, dry_run? }.",
     },
   });
 });
@@ -114,5 +122,15 @@ if (!process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`BanasUno backend: http://localhost:${PORT}`);
     console.log(`  GET /api/facilities, /api/types, /api/heat/:cityId/barangays, /api/heat/:cityId/forecast`);
+    console.log("  Heat analysis + SMS check every hour (sends at Extreme Caution or higher).");
   });
+  const hourMs = 60 * 60 * 1000;
+  runHeatRiskJob({ runHistoricalTrends: false }).catch((err) => {
+    console.error("[heat-sms] startup run failed:", err?.message ?? err);
+  });
+  setInterval(() => {
+    runHeatRiskJob({ runHistoricalTrends: false }).catch((err) => {
+      console.error("[heat-sms] hourly run failed:", err?.message ?? err);
+    });
+  }, hourMs);
 }

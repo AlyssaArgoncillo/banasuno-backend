@@ -1,6 +1,7 @@
 /**
  * Heat risk job: fetch barangay-level forecast from Open-Meteo, compute heat index and risk level,
  * then insert into Supabase heat_risk_counts via insertHeatRisk().
+ * When a barangay is at Extreme Caution or above, text the Davao numbers in sms_recipients.
  *
  * Run manually: npm run heat-risk-job   or   node src/jobs/heatRiskJob.js
  * Run on a schedule (automatic):
@@ -15,6 +16,7 @@
  */
 
 import "dotenv/config";
+import { pathToFileURL } from "url";
 import { getDavaoBarangayGeo, getBarangayCentroids } from "../lib/barangays.js";
 import { getOpenMeteoCurrent, getCurrentWeather } from "../services/weatherService.js";
 import { assessBarangayHeatRisk } from "../services/heatRiskModel.js";
@@ -28,6 +30,7 @@ import {
   fetchAndStoreCityHistoricalTrends,
   deleteOlderThan30Days,
 } from "../services/historicalTrends.js";
+import { sendDavaoHeatSms } from "../services/smsHeatAlert.js";
 
 const OPEN_METEO_TIMEZONE = process.env.HEAT_OPEN_METEO_TIMEZONE || "Asia/Singapore";
 const CONCURRENCY = Math.max(1, Math.min(20, parseInt(process.env.HEAT_JOB_CONCURRENCY, 10) || 5));
@@ -138,6 +141,21 @@ export async function runHeatRiskJob(opts = {}) {
       }
     }
 
+    try {
+      const smsResult = await sendDavaoHeatSms({ risks, geo, cityId: CITY_ID });
+      log(
+        "SMS:",
+        smsResult.status,
+        smsResult.reason || "",
+        smsResult.barangayName ? `(${smsResult.barangayName} ${smsResult.riskLabel || ""})` : "",
+        smsResult.recipientCount != null ? `recipients=${smsResult.recipientCount}` : ""
+      );
+      if (!smsResult.ok) errors.push(`sms: ${smsResult.reason || smsResult.status}`);
+    } catch (err) {
+      log("SMS alert error:", err.message);
+      errors.push(`sms: ${err.message}`);
+    }
+
     const apiKey = process.env.WEATHER_API_KEY?.trim();
     if (!apiKey) {
       log("WEATHER_API_KEY not set; skipping city average temperature insert.");
@@ -218,7 +236,10 @@ async function main() {
   await runHeatRiskJob();
 }
 
-main().catch((err) => {
-  console.error("[HeatRiskJob] Fatal:", err);
-  process.exit(1);
-});
+const isCli = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isCli) {
+  main().catch((err) => {
+    console.error("[HeatRiskJob] Fatal:", err);
+    process.exit(1);
+  });
+}
